@@ -13,7 +13,10 @@
   "dependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
+    "@types/pg": "^8.23.1",
+    "dotenv": "^18.0.6",
     "express": "^5.2.1",
+    "pg": "^8.23.1",
     "save-dev": "^0.0.1-security",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
