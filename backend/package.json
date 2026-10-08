@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": " tsx src/server.ts"
+    "dev": "nodemon --exec npx  tsx src/server.ts"
   },
   "keywords": [],
   "author": "",
