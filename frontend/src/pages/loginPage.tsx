@@ -1,11 +1,32 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDispatch, useSelector } from 'react-redux';
+import { type AppDispatch, type RootState } from '../app/store';
+import { loginUser } from '../features/auth/authSlice';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('alex.morgan@example.com');
-  const [password, setPassword] = useState('••••••••••••');
+  const dispatch = useDispatch<AppDispatch>();
+  
+  // Connect Slice Feedback States
+  const { loading, error } = useSelector((state: RootState) => state.auth);
+
+  // Initialize Input Hooks empty for dynamic typing input
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+
+    // Dispatches standard data mapping straight to authSlice fetch loop
+    const resultAction = await dispatch(loginUser({ email, password }));
+    
+    if (loginUser.fulfilled.match(resultAction)) {
+      navigate('/'); // Redirect to Home Grid dashboard layout on success
+    }
+  };
 
   return (
     <main style={{ minHeight: '100vh', background: '#ffffff', fontFamily: 'system-ui, sans-serif', padding: '32px 24px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -25,17 +46,20 @@ export function LoginPage() {
 
         <h3 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 16px', color: '#111' }}>Welcome back</h3>
 
+        {/* Display System Feedback Logs */}
+        {error && <div style={{ color: '#ef4444', fontSize: '14px', marginBottom: '12px' }}>{error}</div>}
+
         {/* Input Fields Container */}
-        <form style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
             <label style={{ fontSize: '13px', color: '#334155', display: 'block', marginBottom: '6px', fontWeight: 500 }}>Email address</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }} />
+            <input type="email" required placeholder="alex.morgan@example.com" value={email} onChange={(e) => setEmail(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }} />
           </div>
 
           <div>
             <label style={{ fontSize: '13px', color: '#334155', display: 'block', marginBottom: '6px', fontWeight: 500 }}>Password</label>
             <div style={{ position: 'relative' }}>
-              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: '100%', padding: '12px', paddingRight: '60px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }} />
+              <input type={showPassword ? 'text' : 'password'} required placeholder="••••••••••••" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: '100%', padding: '12px', paddingRight: '60px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }} />
               <button type="button" onClick={() => setShowPassword(!showPassword)} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', border: 0, background: 'none', color: '#64748b', fontSize: '13px', cursor: 'pointer' }}>
                 {showPassword ? 'Hide' : 'Show'}
               </button>
@@ -50,8 +74,8 @@ export function LoginPage() {
             <span style={{ color: '#1B4D3E', fontWeight: 500, cursor: 'pointer' }}>Forgot password?</span>
           </div>
 
-          <button type="button" onClick={() => navigate('/home')} style={{ background: '#1B4D3E', color: '#ffffff', width: '100%', border: 0, padding: '14px', borderRadius: '6px', fontWeight: 600, fontSize: '15px', marginTop: '12px', cursor: 'pointer' }}>
-            Sign in
+          <button type="submit" disabled={loading} style={{ background: '#1B4D3E', color: '#ffffff', width: '100%', border: 0, padding: '14px', borderRadius: '6px', fontWeight: 600, fontSize: '15px', marginTop: '12px', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Signing in...' : 'Sign in'}
           </button>
         </form>
 
@@ -71,16 +95,23 @@ export function LoginPage() {
             Apple
           </button>
         </div>
-
-        {/* Footer Sub-Links */}
+             {/* Footer Sub-Links */}
         <div style={{ marginTop: '32px', textAlign: 'center', fontSize: '13px', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div>New to La Villa? <span onClick={() => navigate('/register')} style={{ color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>Create an account →</span></div>
-          <div>Just exploring? <span onClick={() => navigate('/explore')} style={{ color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>Browse stays as a guest →</span></div>
+          <div>Just exploring? <span onClick={() => navigate('/')} style={{ color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>Browse stays as a guest →</span></div>
+          
+          {/*  New Dedicated Admin Link Anchor */}
+          <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed #e2e8f0' }}>
+            <span onClick={() => navigate('/admin/login')} style={{ color: '#64748b', fontSize: '12px', cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 500 }}>
+              La Villa Staff? <strong style={{ color: '#1B4D3E' }}>Admin Portal login →</strong>
+            </span>
+          </div>
         </div>
+
 
       </section>
     </main>
   );
-};
+}
 
-export default LoginPage
+export default LoginPage;
