@@ -4,6 +4,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../app/store';
 import { logout } from '../features/auth/authSlice';
 
+
 interface Accommodation {
   id: string;
   name: string;
@@ -31,7 +32,7 @@ export function AdminDashboard() {
       const fetchInventory = async () => {
         setLoadingHotels(true);
         try {
-          const response = await fetch('http://localhost:3000/api/accommodations');
+          const response = await fetch(`$/api/accommodations`)
           if (response.ok) {
             const data = await response.json();
             setLiveHotels(data);

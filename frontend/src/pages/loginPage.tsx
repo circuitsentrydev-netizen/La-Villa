@@ -9,7 +9,7 @@ export function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
   const { loading, error } = useSelector((state: RootState) => state.auth);
 
-  //  Completely cleaned states (no placeholder text values)
+  // Clean form states
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,6 +21,7 @@ export function LoginPage() {
     const resultAction = await dispatch(loginUser({ email, password }));
     if (loginUser.fulfilled.match(resultAction)) {
       const userRole = resultAction.payload.user?.role?.toUpperCase();
+      
       // Safely evaluates user permissions directly to distribute view layout routes
       if (userRole === 'ADMIN') {
         navigate('/admin/dashboard');
@@ -31,7 +32,7 @@ export function LoginPage() {
   };
 
   const handleGoogleMockOAuth = async () => {
-    // Cleared custom super admin credentials placeholder object layout
+    // Triggers custom super admin credentials placeholder object layout
     const mockUserPayload = {
       email: 'circuitsentrydev@gmail.com',
       name: 'CircuitsEntry Dev Admin',

@@ -1,4 +1,5 @@
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
+import { API_BASE_URL } from '../../config/api';
 
 interface User {
   id: string;
@@ -7,7 +8,6 @@ interface User {
   role: 'USER' | 'ADMIN';
   avatar?: string;
 }
-
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -15,7 +15,6 @@ interface AuthState {
   loading: boolean;
   error: string | null;
 }
-
 const initialState: AuthState = {
   user: null,
   token: localStorage.getItem('token'),
@@ -23,19 +22,15 @@ const initialState: AuthState = {
   loading: false,
   error: null,
 };
-
-const BASE_URL = 'http://localhost:3000';
-
 export const registerUser = createAsyncThunk(
   'auth/registerUser',
   async (userData: { name: string; email: string; password?: string }, thunkAPI) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/auth/register`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(userData),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         return thunkAPI.rejectWithValue(errorData.error || 'Registration failed');
@@ -46,17 +41,15 @@ export const registerUser = createAsyncThunk(
     }
   }
 );
-
 export const loginUser = createAsyncThunk(
   'auth/loginUser',
   async (credentials: { email: string; password?: string }, thunkAPI) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/auth/login`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         return thunkAPI.rejectWithValue(errorData.error || 'Invalid credentials');
@@ -67,17 +60,15 @@ export const loginUser = createAsyncThunk(
     }
   }
 );
-
 export const loginWithOAuth = createAsyncThunk(
   'auth/loginWithOAuth',
   async (oauthPayload: { email: string; name: string; avatar?: string }, thunkAPI) => {
     try {
-      const response = await fetch(`${BASE_URL}/api/auth/oauth-login`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/oauth-login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(oauthPayload),
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         return thunkAPI.rejectWithValue(errorData.error || 'OAuth login failed');
@@ -88,7 +79,6 @@ export const loginWithOAuth = createAsyncThunk(
     }
   }
 );
-
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -147,6 +137,5 @@ const authSlice = createSlice({
       });
   },
 });
-
 export const { logout, clearAuthError } = authSlice.actions;
 export default authSlice.reducer;

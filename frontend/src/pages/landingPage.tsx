@@ -1,8 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../app/store';
 import { logout } from '../features/auth/authSlice';
+import { API_BASE_URL } from '../config/api';
+
+interface Accommodation {
+  id: string;
+  name: string;
+  address: string;
+  star_rating: number;
+  price_per_night: string | number;
+  facilities: string[];
+  policies: string[];
+}
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -17,23 +28,28 @@ export function LandingPage() {
   const [checkOut, setCheckOut] = useState('19 June 2026');
   const [guests, setGuests] = useState('1 room · 2 adults · 0 children');
 
-  // Mock Data mimicking the "Stays to discover" layout
-  const mockStays = [
-    {
-      id: '1',
-      name: 'Villa Atlantic',
-      location: 'Sea Point, Cape Town',
-      rating: '4.8 (120 reviews)',
-      price: 'R1,480'
-    },
-    {
-      id: '2',
-      name: 'Garden House',
-      location: 'Gardens, Cape Town',
-      rating: '4.9 (85 reviews)',
-      price: 'R1,450'
-    }
-  ];
+  // Real-time PostgreSQL Database State Sync
+  const [liveStays, setLiveStays] = useState<Accommodation[]>([]);
+  const [loadingStays, setLoadingStays] = useState(false);
+
+  // Fetch data cleanly via identical same-origin address parameters 
+  useEffect(() => {
+    const fetchLandingInventory = async () => {
+      setLoadingStays(true);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/accommodations`);
+        if (response.ok) {
+          const data = await response.json();
+          setLiveStays(data);
+        }
+      } catch (error) {
+        console.error("Error connecting to inventory tables:", error);
+      } finally {
+        setLoadingStays(false);
+      }
+    };
+    fetchLandingInventory();
+  }, []);
 
   return (
     <main style={{ background: '#FAF9F6', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', paddingBottom: '40px' }}>
@@ -102,22 +118,34 @@ export function LandingPage() {
           <span style={{ fontSize: '13px', color: '#1B4D3E', fontWeight: 500, cursor: 'pointer' }}>Show all →</span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {mockStays.map((stay) => (
-            <div key={stay.id} style={{ background: '#ffffff', borderRadius: '12px', padding: '16px', border: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#1B4D3E', fontWeight: 600 }}>{stay.name}</h4>
-                <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#64748b' }}>{stay.location}</p>
-                <span style={{ fontSize: '12px', color: '#eab308' }}>★ {stay.rating}</span>
+        {loadingStays ? (
+          <div style={{ padding: '24px', textAlign: 'center', color: '#64748b', fontSize: '14px' }}>
+            Fetching available stays from database...
+          </div>
+        ) : liveStays.length === 0 ? (
+          <div style={{ padding: '32px', textAlign: 'center', color: '#94a3b8', background: '#ffffff', borderRadius: '12px', border: '1px solid #f0f0f0', fontSize: '14px' }}>
+            No accommodations are currently live in the inventory database rows.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {liveStays.map((stay) => (
+              <div key={stay.id} style={{ background: '#ffffff', borderRadius: '12px', padding: '16px', border: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h4 style={{ margin: '0 0 4px', fontSize: '16px', color: '#1B4D3E', fontWeight: 600 }}>{stay.name}</h4>
+                  <p style={{ margin: '0 0 6px', fontSize: '13px', color: '#64748b' }}>{stay.address}</p>
+                  <span style={{ fontSize: '12px', color: '#eab308' }}>★ {Number(stay.star_rating).toFixed(1)}</span>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <strong style={{ fontSize: '16px', color: '#111', display: 'block' }}>
+                    {typeof stay.price_per_night === 'number' ? `R${stay.price_per_night.toLocaleString()}` : stay.price_per_night}
+                  </strong>
+                  <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginBottom: '8px' }}>/ night</span>
+                  <span style={{ fontSize: '13px', color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>View stay →</span>
+                </div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <strong style={{ fontSize: '16px', color: '#111', display: 'block' }}>{stay.price}</strong>
-                <span style={{ fontSize: '11px', color: '#64748b', display: 'block', marginBottom: '8px' }}>/ night</span>
-                <span style={{ fontSize: '13px', color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>View stay →</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </section>
 
     </main>
