@@ -15,7 +15,7 @@ export const authMiddleware = {
 
       // FIX 1: Add [1] to pull the actual string token out of the array
       const token = authHeader.split(' ')[1];
-      const secret = process.env.JWT_SECRET || 'hotel_app_super_secure_secret_key_2026';
+      const secret = process.env.JWT_SECRET || 'this-key-is-secret';
       
       // FIX 2: Safe type evaluation assertion
       const decoded = jwt.verify(token, secret) as unknown as TokenPayload;

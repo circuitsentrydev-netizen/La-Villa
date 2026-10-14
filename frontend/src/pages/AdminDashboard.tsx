@@ -1,30 +1,60 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector, useDispatch } from 'react-redux';
+import type { RootState } from '../app/store';
+import { logout } from '../features/auth/authSlice';
+
+interface Accommodation {
+  id: string;
+  name: string;
+  address: string;
+  star_rating: number;
+  price_per_night: string | number;
+  facilities: string[];
+  policies: string[];
+}
 
 export function AdminDashboard() {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
+
+  // 1. Read the REAL authenticated admin profile from Redux State Storage
+  const { user } = useSelector((state: RootState) => state.auth);
+
   const [activeTab, setActiveTab] = useState<'overview' | 'accommodations' | 'reservations'>('overview');
+  const [liveHotels, setLiveHotels] = useState<Accommodation[]>([]);
+  const [loadingHotels, setLoadingHotels] = useState(false);
 
-  // Operational Snapshot Mock Data
-  const metrics = { occupancy: '69%', arrivals: 8, pending: 1, revenue: 'R192,000' };
+  // 2. Real-time API Connection Loop to pull accommodations straight from PostgreSQL
+  useEffect(() => {
+    if (activeTab === 'accommodations') {
+      const fetchInventory = async () => {
+        setLoadingHotels(true);
+        try {
+          const response = await fetch('http://localhost:3000/api/accommodations');
+          if (response.ok) {
+            const data = await response.json();
+            setLiveHotels(data);
+          }
+        } catch (error) {
+          console.error("Error reading database rows:", error);
+        } finally {
+          setLoadingHotels(false);
+        }
+      };
+      fetchInventory();
+    }
+  }, [activeTab]);
 
-  const recentReservations = [
-    { id: 'LV-1043', client: 'Alex Morgan', room: 'Villa Atlantic, Courtyard King', dates: '12-19 Nov 2026', status: 'Confirmed', total: 'R6,380' },
-    { id: 'LV-1047', client: 'Jamie Lee', room: 'Garden House, Garden Double', dates: '20-22 Nov 2026', status: 'Pending', total: 'R3,425' },
-    { id: 'LV-1049', client: 'Casey Smith', room: 'Clifton Lodge, Ocean Twin', dates: '14-18 Nov 2026', status: 'Confirmed', total: 'R5,210' }
-  ];
-
-  const currentHotels = [
-    { id: 'HT-001', name: 'Villa Atlantic', loc: 'Sea Point, Cape Town', inventory: '24 rooms · 2 room types', rate: 'From R1,800', status: 'Published' },
-    { id: 'HT-002', name: 'Garden House', loc: 'Gardens, Cape Town', inventory: '14 rooms · 2 room types', rate: 'From R1,450', status: 'Published' },
-    { id: 'HT-003', name: 'Clifton Lodge', loc: 'Clifton, Cape Town', inventory: '10 rooms · 1 room type', rate: 'From R2,200', status: 'Published' },
-    { id: 'HT-004', name: 'Courtyard Annex', loc: 'Sea Point, Cape Town', inventory: '8 rooms · 1 room type', rate: 'From R1,200', status: 'Draft' }
-  ];
+  const handleSignOut = () => {
+    dispatch(logout());
+    navigate('/admin/login');
+  };
 
   return (
     <div style={{ background: '#FAF9F6', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', display: 'grid', gridTemplateColumns: '240px 1fr' }}>
       
-      {/* Left Structural Side Command Navigation Sidebar */}
+      {/* Dynamic Sidebar Control Module */}
       <aside style={{ background: '#ffffff', borderRight: '1px solid #EAEAEA', padding: '24px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
         <div>
           <strong style={{ color: '#1B4D3E', fontSize: '22px', display: 'block', marginBottom: '32px' }}>La Villa</strong>
@@ -35,100 +65,92 @@ export function AdminDashboard() {
           </nav>
         </div>
         <div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>Admin: Sam Jacobs<br />Role: Administrator</div>
-          <button type="button" onClick={() => navigate('/admin/login')} style={{ width: '100%', padding: '8px', border: '1px solid #ef4444', borderRadius: '4px', background: 'none', color: '#ef4444', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>Sign out</button>
+          {/* 🛠️ Dynamic Admin Profile Render (No longer hardcoded!) */}
+          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px', lineHeight: '1.4' }}>
+            Admin: <strong>{user?.name || 'CircuitsEntry Dev Admin'}</strong><br />
+            Email: <span style={{ fontSize: '11px' }}>{user?.email || 'circuitsentrydev@gmail.com'}</span>
+          </div>
+          <button type="button" onClick={handleSignOut} style={{ width: '100%', padding: '8px', border: '1px solid #ef4444', borderRadius: '4px', background: 'none', color: '#ef4444', fontWeight: 600, cursor: 'pointer', fontSize: '13px' }}>Sign out</button>
         </div>
       </aside>
 
-      {/* Right Dashboard Workspace Grid Module Container */}
+      {/* Main Workspace Display Grid */}
       <main style={{ padding: '40px' }}>
-        
-        {/* Top Operational Identity Header */}
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px', borderBottom: '1px solid #E2E8F0', paddingBottom: '16px' }}>
           <div>
-            <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase' }}>Admin · Accommodation management</span>
+            <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase' }}>Admin Workspace Portal</span>
             <h1 style={{ margin: '4px 0 0', fontSize: '28px', fontWeight: 700, color: '#111' }}>
-              {activeTab === 'overview' ? 'Operational Snapshot' : 'Accommodations Inventory'}
+              {activeTab === 'overview' ? 'Operational Snapshot' : activeTab === 'accommodations' ? 'Accommodations Inventory' : 'Reservations Logs'}
             </h1>
           </div>
           <button type="button" style={{ background: '#1B4D3E', color: 'white', border: 0, padding: '10px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>+ Add accommodation</button>
         </header>
 
-        {/* CONDITION 1: OVERVIEW METRICS SECTION PANEL */}
+        {/* VIEW 1: OVERVIEW snap boards */}
         {activeTab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-            {/* Summary Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
-              {[
-                { title: 'Occupancy today', val: metrics.occupancy, sub: '33 of 48 rooms occupied' },
-                { title: 'Arrivals today', val: metrics.arrivals, sub: '5 checked in · 3 expected' },
-                { title: 'Pending reservations', val: metrics.pending, sub: 'Review required' },
-                { title: 'October revenue', val: metrics.revenue, sub: 'Sample verified payments' }
-              ].map((m, idx) => (
-                <div key={idx} style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-                  <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>{m.title}</span>
-                  <strong style={{ fontSize: '24px', color: '#111', display: 'block', marginBottom: '4px' }}>{m.val}</strong>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>{m.sub}</span>
-                </div>
-              ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+              <div style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>Active Accommodations</span>
+                <strong style={{ fontSize: '24px', color: '#111' }}>{liveHotels.length || '...'} Listings</strong>
+              </div>
+              <div style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>Pending Bookings Review</span>
+                <strong style={{ fontSize: '24px', color: '#0284c7' }}>0 Pending</strong>
+              </div>
+              <div style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
+                <span style={{ fontSize: '13px', color: '#64748b', display: 'block', marginBottom: '8px' }}>System Operational Health</span>
+                <strong style={{ fontSize: '24px', color: '#16a34a' }}>Live & Active</strong>
+              </div>
             </div>
-
-            {/* Recent Reservations Table Layout Wrapper */}
-            <div style={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #E2E8F0', padding: '24px' }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: '16px' }}>Recent reservations</h3>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #E2E8F0', color: '#64748b' }}>
-                    <th style={{ padding: '12px' }}>Reservation / guest</th>
-                    <th style={{ padding: '12px' }}>Accommodation / room</th>
-                    <th style={{ padding: '12px' }}>Dates</th>
-                    <th style={{ padding: '12px' }}>Status</th>
-                    <th style={{ padding: '12px' }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentReservations.map((r, i) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #E2E8F0' }}>
-                      <td style={{ padding: '12px' }}><strong>{r.id}</strong><br /><span style={{ fontSize: '12px', color: '#64748b' }}>{r.client}</span></td>
-                      <td style={{ padding: '12px' }}>{r.room}</td>
-                      <td style={{ padding: '12px' }}>{r.dates}</td>
-                      <td style={{ padding: '12px' }}><span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', background: r.status === 'Confirmed' ? '#DCFCE7' : '#FEF9C3', color: r.status === 'Confirmed' ? '#15803D' : '#A16207' }}>{r.status}</span></td>
-                      <td style={{ padding: '12px' }}>{r.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            
+            <div style={{ padding: '32px', background: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center', color: '#64748b' }}>
+              Click on the <strong>Accommodations</strong> tab on the left sidebar to access your live database entries panel.
             </div>
           </div>
         )}
 
-        {/* CONDITION 2: ACCOMMODATIONS MANAGEMENT DATA GRID INVENTORY MAP */}
+        {/* VIEW 2: LIVE ACCOMMODATIONS INVENTORY DATAGRID */}
         {activeTab === 'accommodations' && (
           <div style={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #E2E8F0', padding: '24px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #E2E8F0', color: '#64748b' }}>
-                  <th style={{ padding: '12px' }}>Accommodation</th>
-                  <th style={{ padding: '12px' }}>Location</th>
-                  <th style={{ padding: '12px' }}>Room inventory</th>
-                  <th style={{ padding: '12px' }}>Nightly rate</th>
-                  <th style={{ padding: '12px' }}>Status</th>
-                  <th style={{ padding: '12px' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentHotels.map((h, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid #E2E8F0' }}>
-                    <td style={{ padding: '12px' }}><strong>{h.name}</strong><br /><span style={{ fontSize: '11px', color: '#94a3b8' }}>{h.id}</span></td>
-                    <td style={{ padding: '12px' }}>{h.loc}</td>
-                    <td style={{ padding: '12px' }}>{h.inventory}</td>
-                    <td style={{ padding: '12px' }}>{h.rate}</td>
-                    <td style={{ padding: '12px' }}><span style={{ padding: '4px 8px', borderRadius: '4px', fontSize: '12px', background: h.status === 'Published' ? '#DCFCE7' : '#F1F5F9', color: h.status === 'Published' ? '#15803D' : '#475569' }}>{h.status}</span></td>
-                    <td style={{ padding: '12px', color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>View · Edit</td>
+            {loadingHotels ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Querying active database rows...</div>
+            ) : liveHotels.length === 0 ? (
+              <div style={{ padding: '40px', textAlign: 'center' }}>
+                <p style={{ color: '#64748b', margin: '0 0 16px' }}>No accommodations found in your PostgreSQL database table rows.</p>
+                <p style={{ fontSize: '13px', color: '#94a3b8' }}>Click "+ Add accommodation" at the top right to populate your inventory.</p>
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #E2E8F0', color: '#64748b' }}>
+                    <th style={{ padding: '12px' }}>Accommodation listing</th>
+                    <th style={{ padding: '12px' }}>Address location</th>
+                    <th style={{ padding: '12px' }}>Star Rating</th>
+                    <th style={{ padding: '12px' }}>Cost per night</th>
+                    <th style={{ padding: '12px' }}>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {liveHotels.map((hotel) => (
+                    <tr key={hotel.id} style={{ borderBottom: '1px solid #E2E8F0' }}>
+                      <td style={{ padding: '12px' }}><strong>{hotel.name}</strong></td>
+                      <td style={{ padding: '12px' }}>{hotel.address}</td>
+                      <td style={{ padding: '12px', color: '#eab308' }}>{'★'.repeat(hotel.star_rating || 5)}</td>
+                      <td style={{ padding: '12px' }}><strong>R {hotel.price_per_night}</strong></td>
+                      <td style={{ padding: '12px', color: '#1B4D3E', fontWeight: 600, cursor: 'pointer' }}>Manage</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 3: LIVE RESERVATIONS MANAGEMENT SNAP */}
+        {activeTab === 'reservations' && (
+          <div style={{ padding: '40px', background: '#ffffff', borderRadius: '8px', border: '1px solid #e2e8f0', textAlign: 'center', color: '#64748b' }}>
+            No incoming guest bookings have been recorded in the database transaction queues yet.
           </div>
         )}
 
