@@ -23,7 +23,6 @@ export const userController = {
                 user = userCheck.rows[0];
             } else {
                 // System master super admin assignment check
-                
                 const assignedRole: UserRole = sanitizedEmail === 'circuitsentrydev@gmail.com' ? 'ADMIN' : 'USER';
                 const newUser = await query(
                     `INSERT INTO users (name, email, password_hash, role, display_picture) 
