@@ -1,14 +1,24 @@
 import { Router } from 'express';
-import { getAllAccommodations, createAccommodation } from '../controllers/hotelController';
+import { 
+  getAllAccommodations, 
+  createAccommodation, 
+  addRoomInventory, 
+  getDashboardSnapshot 
+} from '../controllers/hotelController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
 const router = Router();
 
-// Public route: Stays feed downloads freely to display in the frontend cards grid layout
+// Dashboard Analytical Operations (Overview State panels widgets data)
+router.get('/snapshot', getDashboardSnapshot);
 
+// Database grid table list data array queries
 router.get('/', getAllAccommodations);
 
-// Admin route: Restricts entry strictly to logged-in administrators matching 'ADMIN'
-router.post('/', authMiddleware.requireAuth, authMiddleware.requireAdmin, createAccommodation);
+// Admin-protected asset management mutation pipelines
+// Inside backend/src/routes/hotelRoute.ts
+
+router.post('/hotels', createAccommodation);
+router.post('/:accommodationId/rooms', authMiddleware.requireAuth, authMiddleware.requireAdmin, addRoomInventory);
 
 export default router;

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { authService } from '../services/authService';
+import { query } from '../config/database';
 
 export const authController = {
   // 1. THIRD-PARTY OAUTH HANDLER
@@ -26,7 +27,7 @@ export const authController = {
 
   // 2. TRADITIONAL USER REGISTRATION FORM HANDLER
   handleRegister: async (req: Request, res: Response): Promise<void> => {
-    try {
+    try { 
       const { name, email, password } = req.body;
 
       if (!name || !email || !password) {
@@ -39,6 +40,15 @@ export const authController = {
         email,
         password_hash: password // Passes the plain text to the service layer to be hashed securely
       });
+
+      //  SAFE DIAGNOSTIC BLOCK: Placed down here so it won't crash on an empty user table.
+      // This prints the exact database file your connection pool is targeting.
+      try {
+        const debugDb = await query("SELECT current_database(), current_schema()");
+        console.log("📍 REAL BACKEND TARGET DATABASE:", debugDb.rows);
+      } catch (dbErr) {
+        console.error("Diagnostic query failed:", dbErr);
+      }
 
       res.status(201).json({
         message: 'Registration successful',
