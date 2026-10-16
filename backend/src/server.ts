@@ -6,7 +6,7 @@ import { pool } from "./config/database";
 import authRoute from "./routes/authRoute";
 import hotelRoute from "./routes/hotelRoute";
 import userRoute from "./routes/userRoutes"
-// import roomRoute from "./routes/roomRoute";
+import roomRoute from "./routes/roomRoute";
 
 dotenv.config();
 
@@ -21,8 +21,6 @@ app.use(express.json());
 
 // API Endpoints Mapping Modules
 
-// app.use("/api/auth", authRoute);
-
 const startServer = async () => {
     await textDbConnection();
     
@@ -30,7 +28,7 @@ const startServer = async () => {
     app.use("/api/auth", authRoute)
      app.use("/api/auth", userRoute)
     app.use('/api',hotelRoute);
-    
+    app.use('/api/rooms', roomRoute);
    
     
     app.listen(PORT, () => {

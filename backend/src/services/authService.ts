@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs'; // Handles secure salt-hashing operations
+import bcrypt from 'bcryptjs';     // Handles secure salt-hashing operations
 import { pool } from '../config/database';
 import { OAuthLoginInput, RegisterInput, LoginInput, AuthResponse } from '../types/authType';
 
@@ -19,7 +19,8 @@ export const authService = {
       if (userCheck.rows.length > 0) {
         user = userCheck.rows[0];
       } else {
-        const assignedRole = sanitizedEmail === 'circuitsentrydev@gmail.com' ? 'ADMIN' : 'USER';
+        // 💡 Whitelisted your custom temporary email address for administrative routing rights
+        const assignedRole = (sanitizedEmail === 'circuitsentrydev@gmail.com' || sanitizedEmail === 'tempadminlavilla@gmail.com') ? 'ADMIN' : 'USER';
         
         // Match the columns exactly as configured inside your pgAdmin layout
         const newUser = await pool.query(
@@ -48,7 +49,7 @@ export const authService = {
     }
   },
 
-  // 2. TRADITIONAL ACCOUNT REGISTRATION FORM FLOW
+  // 2. TRADITIONAL ACCOUNT REGISTRATION FORM FLOW (Whitelisted Admin Creator)
   registerWithPassword: async (input: RegisterInput): Promise<AuthResponse> => {
     try {
       const { name, email, password_hash } = input;
@@ -62,9 +63,11 @@ export const authService = {
 
       // Cryptographically hash the plain-text password securely before saving to database rows
       const secureHash = await bcrypt.hash(password_hash, SALT_ROUNDS);
-      const assignedRole = sanitizedEmail === 'circuitsentrydev@gmail.com' ? 'ADMIN' : 'USER';
+      
+      // 💡 Whitelisted both emails so your temporary testing administrator receives root access codes safely
+      const assignedRole = (sanitizedEmail === 'circuitsentrydev@gmail.com' || sanitizedEmail === 'tempadminlavilla@gmail.com') ? 'ADMIN' : 'USER';
 
-      console.log("⏳ Executing PostgreSQL INSERT operation...");
+      console.log(" ✍️ Executing PostgreSQL INSERT operation into users table...");
       
       const result = await pool.query(
         `INSERT INTO users (name, email, password_hash, role) 
@@ -101,7 +104,6 @@ export const authService = {
         }
       };
     } catch (error: any) {
-      // This will trap database syntax/schema validation mapping runtime exceptions cleanly
       console.error(' CRITICAL REGISTRATION BACKEND EXCEPTION ENCOUNTERED:', error.message);
       throw error;
     }
