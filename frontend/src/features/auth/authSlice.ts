@@ -50,10 +50,22 @@ export const loginUser = createAsyncThunk(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
+
+      // 1. Check if the response failed
       if (!response.ok) {
-        const errorData = await response.json();
-        return thunkAPI.rejectWithValue(errorData.error || 'Invalid credentials');
+        const contentType = response.headers.get('content-type');
+        
+        // 2. Safely check if the backend actually sent JSON back
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          return thunkAPI.rejectWithValue(errorData.error || 'Invalid credentials');
+        } else {
+          // 3. Fallback safely if it returned HTML text (like a 401 or 404 page)
+          await response.text();
+          return thunkAPI.rejectWithValue('Invalid credentials or server error occurred');
+        }
       }
+
       return await response.json();
     } catch (error: any) {
       return thunkAPI.rejectWithValue(error.message || 'Network error occurred');
