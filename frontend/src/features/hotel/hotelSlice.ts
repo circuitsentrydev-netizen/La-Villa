@@ -45,7 +45,7 @@ export const fetchAccommodations = createAsyncThunk(
   'hotel/fetchAccommodations', 
   async (filters: any, thunkAPI) => {
     try {
-      let url = '/api/accommodations';
+      let url = 'http://localhost:3002/accommodations';
       if (filters) {
         const queryParams = new URLSearchParams(filters).toString();
         url += `?${queryParams}`;
