@@ -1,13 +1,21 @@
-import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
+
+import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { API_BASE_URL } from '../../config/api';
 
-interface User {
+export interface User {
   id: string;
   name: string;
   email: string;
   role: 'USER' | 'ADMIN';
   avatar?: string;
 }
+
+interface AuthResponse {
+  user: User;
+  token: string;
+  message?: string;
+}
+
 interface AuthState {
   user: User | null;
   token: string | null;
@@ -15,82 +23,96 @@ interface AuthState {
   loading: boolean;
   error: string | null;
 }
+
+const savedToken = localStorage.getItem('lavilla_token');
+
 const initialState: AuthState = {
   user: null,
-  token: localStorage.getItem('token'),
-  isAuthenticated: !!localStorage.getItem('token'),
+  token: savedToken,
+  isAuthenticated: Boolean(savedToken),
   loading: false,
   error: null,
 };
-export const registerUser = createAsyncThunk(
+
+async function requestAuth(
+  endpoint: 'register' | 'login',
+  body: Record<string, string>
+): Promise<AuthResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `The server returned a non-JSON response (${response.status}). Check that the backend is running and the API URL is correct.`
+    );
+  }
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || data.message || 'Authentication request failed.'
+    );
+  }
+
+  if (!data.user || !data.token) {
+    throw new Error(
+      'The server response is missing the user or authentication token.'
+    );
+  }
+
+  return data as AuthResponse;
+}
+
+export const registerUser = createAsyncThunk<
+  AuthResponse,
+  { name: string; email: string; password: string },
+  { rejectValue: string }
+>(
   'auth/registerUser',
-  async (userData: { name: string; email: string; password?: string }, thunkAPI) => {
+  async (userData, { rejectWithValue }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(userData),
+      return await requestAuth('register', {
+        name: userData.name.trim(),
+        email: userData.email.trim().toLowerCase(),
+        password: userData.password,
       });
-      if (!response.ok) {
-        const errorData = await response.json();
-        return thunkAPI.rejectWithValue(errorData.error || 'Registration failed');
-      }
-      return await response.json();
-    } catch (error: any) {
-      return thunkAPI.rejectWithValue(error.message || 'Network error occurred');
+    } catch (error) {
+      return rejectWithValue(
+        error instanceof Error ? error.message : 'Registration failed.'
+      );
     }
   }
 );
-export const loginUser = createAsyncThunk(
+
+export const loginUser = createAsyncThunk<
+  AuthResponse,
+  { email: string; password: string },
+  { rejectValue: string }
+>(
   'auth/loginUser',
-  async (credentials: { email: string; password?: string }, thunkAPI) => {
+  async (credentials, { rejectWithValue }) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(credentials),
+      return await requestAuth('login', {
+        email: credentials.email.trim().toLowerCase(),
+        password: credentials.password,
       });
-
-      // 1. Check if the response failed
-      if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        
-        // 2. Safely check if the backend actually sent JSON back
-        if (contentType && contentType.includes('application/json')) {
-          const errorData = await response.json();
-          return thunkAPI.rejectWithValue(errorData.error || 'Invalid credentials');
-        } else {
-          // 3. Fallback safely if it returned HTML text (like a 401 or 404 page)
-          await response.text();
-          return thunkAPI.rejectWithValue('Invalid credentials or server error occurred');
-        }
-      }
-
-      return await response.json();
-    } catch (error: any) {
-      return thunkAPI.rejectWithValue(error.message || 'Network error occurred');
+    } catch (error) {
+      return rejectWithValue(
+        error instanceof Error ? error.message : 'Login failed.'
+      );
     }
   }
 );
-export const loginWithOAuth = createAsyncThunk(
-  'auth/loginWithOAuth',
-  async (oauthPayload: { email: string; name: string; avatar?: string }, thunkAPI) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/auth/oauth-login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(oauthPayload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        return thunkAPI.rejectWithValue(errorData.error || 'OAuth login failed');
-      }
-      return await response.json();
-    } catch (error: any) {
-      return thunkAPI.rejectWithValue(error.message || 'Network error occurred');
-    }
-  }
-);
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -100,54 +122,54 @@ const authSlice = createSlice({
       state.token = null;
       state.isAuthenticated = false;
       state.error = null;
+
+      localStorage.removeItem('lavilla_token');
       localStorage.removeItem('token');
     },
+
     clearAuthError: (state) => {
       state.error = null;
-    }
+    },
   },
+
   extraReducers: (builder) => {
     builder
-      // Register
-      .addCase(registerUser.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(registerUser.fulfilled, (state, action: PayloadAction<any>) => {
+      // Registration: create the account, but do not sign the user in.
+      .addCase(registerUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(registerUser.fulfilled, (state) => {
         state.loading = false;
-        state.isAuthenticated = true;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        localStorage.setItem('token', action.payload.token);
+        state.error = null;
       })
       .addCase(registerUser.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload as string;
+        state.error =
+          action.payload || action.error.message || 'Registration failed.';
       })
-      // Local Login
-      .addCase(loginUser.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(loginUser.fulfilled, (state, action: PayloadAction<any>) => {
+
+      // Login: authenticate and save the token.
+      .addCase(loginUser.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(loginUser.fulfilled, (state, action) => {
         state.loading = false;
-        state.isAuthenticated = true;
         state.user = action.payload.user;
         state.token = action.payload.token;
+        state.isAuthenticated = true;
+
+        localStorage.setItem('lavilla_token', action.payload.token);
         localStorage.setItem('token', action.payload.token);
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.loading = false;
-        state.error = action.payload as string;
-      })
-      // OAuth Login
-      .addCase(loginWithOAuth.pending, (state) => { state.loading = true; state.error = null; })
-      .addCase(loginWithOAuth.fulfilled, (state, action: PayloadAction<any>) => {
-        state.loading = false;
-        state.isAuthenticated = true;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
-        localStorage.setItem('token', action.payload.token);
-      })
-      .addCase(loginWithOAuth.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload as string;
+        state.error =
+          action.payload || action.error.message || 'Login failed.';
       });
   },
 });
+
 export const { logout, clearAuthError } = authSlice.actions;
 export default authSlice.reducer;
