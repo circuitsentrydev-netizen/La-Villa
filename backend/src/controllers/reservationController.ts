@@ -4,6 +4,13 @@ import { ReservationService } from "../services/reservationService";
 
 const reservationService = new ReservationService();
 
+const allowedStatuses = [
+  "Pending",
+  "Confirmed",
+  "Cancelled",
+  "Completed",
+];
+
 export const getAllReservations = async (
   _req: Request,
   res: Response
@@ -12,7 +19,7 @@ export const getAllReservations = async (
     const reservations =
       await reservationService.getAllReservations();
 
-    res.status(200).json(reservations);
+    res.status(200).json({ reservations });
   } catch (error) {
     console.error("Error fetching reservations:", error);
 
@@ -36,13 +43,6 @@ export const updateReservationStatus = async (
       });
       return;
     }
-
-    const allowedStatuses = [
-      "Pending",
-      "Confirmed",
-      "Cancelled",
-      "Completed",
-    ];
 
     if (
       typeof status !== "string" ||
