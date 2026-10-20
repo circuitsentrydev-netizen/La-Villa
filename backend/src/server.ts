@@ -1,44 +1,44 @@
 import express from "express";
 import dotenv from "dotenv";
-import cors from "cors";  // Added CORS to bridge across frontend origins safely
+import cors from "cors";
+import path from "path";
+
 import { textDbConnection } from "./config/database";
-import { pool } from "./config/database";
 import authRoute from "./routes/authRoute";
 import hotelRoute from "./routes/hotelRoute";
-import userRoute from "./routes/userRoutes"
+import userRoute from "./routes/userRoutes";
 import roomRoute from "./routes/roomRoute";
+import reservationRoute from "./routes/reservationRoute";
 
 dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 3002;
+
 app.use(cors());
-const PORT = process.env.PORT || 3000
-
-// Essential Middleware Layers
-
-
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// API Endpoints Mapping Modules
+app.use(
+  "/uploads",
+  express.static(path.resolve(process.cwd(), "uploads"))
+);
+
+app.use("/api/auth", authRoute);
+app.use("/api", userRoute);
+app.use("/api", hotelRoute);
+app.use("/api/rooms", roomRoute);
+app.use("/api/reservations", reservationRoute);
 
 const startServer = async () => {
-    await textDbConnection();
-    
-
-    app.use("/api/auth", authRoute)
-     app.use("/api/auth", userRoute)
-    app.use('/api',hotelRoute);
-    app.use('/api/rooms', roomRoute);
-   
-    
-    app.listen(PORT, () => {
-    console.log(` server is running on http://localhost:${PORT}`);
-  });
   try {
+    await textDbConnection();
 
-  }
-   catch (error) {
-    console.error(" Failed to initiate server lifecycle sequence:", error);
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 };
