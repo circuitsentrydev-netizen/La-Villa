@@ -1,87 +1,130 @@
-import { Request, Response } from 'express';
+
+import type { Request, Response } from 'express';
 import { authService } from '../services/authService';
-import { query } from '../config/database';
 
 export const authController = {
-  // 1. THIRD-PARTY OAUTH HANDLER
-  handleOAuthLogin: async (req: Request, res: Response): Promise<void> => {
+  handleRegister: async (
+    req: Request,
+    res: Response
+  ): Promise<void> => {
     try {
-      const { email, name, avatar } = req.body;
+      const { name, email, password } = req.body ?? {};
 
-      if (!email) {
-        res.status(400).json({ error: 'Email parameter is required for authentication.' });
+      if (
+        typeof name !== 'string' ||
+        typeof email !== 'string' ||
+        typeof password !== 'string' ||
+        !name.trim() ||
+        !email.trim() ||
+        !password
+      ) {
+        res.status(400).json({
+          error: 'Name, email, and password are required.',
+        });
         return;
       }
 
-      const authData = await authService.loginOrRegister({ email, name, avatar });
-
-      res.status(200).json({
-        message: 'Authentication successful',
-        ...authData
-      });
-    } catch (error: any) {
-      console.error('Error handling OAuth process:', error);
-      res.status(500).json({ error: error.message || 'Internal validation or server error.' });
-    }
-  },
-
-  // 2. TRADITIONAL USER REGISTRATION FORM HANDLER
-  handleRegister: async (req: Request, res: Response): Promise<void> => {
-    try { 
-      const { name, email, password } = req.body;
-
-      if (!name || !email || !password) {
-        res.status(400).json({ error: 'All configuration inputs (name, email, password) are mandatory parameters.' });
+      if (password.length < 8) {
+        res.status(400).json({
+          error: 'Password must contain at least 8 characters.',
+        });
         return;
       }
 
       const authData = await authService.registerWithPassword({
-        name,
-        email,
-        password_hash: password // Passes the plain text to the service layer to be hashed securely
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password_hash: password,
       });
-
-      //  SAFE DIAGNOSTIC BLOCK: Placed down here so it won't crash on an empty user table.
-      // This prints the exact database file your connection pool is targeting.
-      try {
-        const debugDb = await query("SELECT current_database(), current_schema()");
-        console.log("📍 REAL BACKEND TARGET DATABASE:", debugDb.rows);
-      } catch (dbErr) {
-        console.error("Diagnostic query failed:", dbErr);
-      }
 
       res.status(201).json({
-        message: 'Registration successful',
-        ...authData
+        message: 'Registration successful. Please sign in.',
+        ...authData,
       });
-    } catch (error: any) {
-      console.error('Error handling standard registration:', error);
-      res.status(400).json({ error: error.message || 'Failed to complete registration flow.' });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Registration failed.';
+
+      console.error('Registration error:', message);
+
+      if (message.includes('already exists')) {
+        res.status(409).json({ error: message });
+        return;
+      }
+
+      res.status(400).json({ error: message });
     }
   },
 
-  // 3. TRADITIONAL EMAIL & PASSWORD LOGIN HANDLER
-  handleLogin: async (req: Request, res: Response): Promise<void> => {
+  handleLogin: async (
+    req: Request,
+    res: Response
+  ): Promise<void> => {
     try {
-      const { email, password } = req.body;
+      const { email, password } = req.body ?? {};
 
-      if (!email || !password) {
-        res.status(400).json({ error: 'Email and password are required fields.' });
+      if (
+        typeof email !== 'string' ||
+        typeof password !== 'string' ||
+        !email.trim() ||
+        !password
+      ) {
+        res.status(400).json({
+          error: 'Email and password are required.',
+        });
         return;
       }
 
       const authData = await authService.loginWithPassword({
-        email,
-        password_raw: password
+        email: email.trim().toLowerCase(),
+        password_raw: password,
       });
 
       res.status(200).json({
-        message: 'Login successful',
-        ...authData
+        message: 'Login successful.',
+        ...authData,
       });
-    } catch (error: any) {
-      console.error('Error handling standard login:', error);
-      res.status(401).json({ error: error.message || 'Authentication rejected.' });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Authentication failed.';
+
+      console.error('Login error:', message);
+      res.status(401).json({ error: message });
     }
-  }
+  },
+
+  // Kept for compatibility with the existing authRoute.
+  // This is not a substitute for validating a real OAuth provider token.
+  handleOAuthLogin: async (
+    req: Request,
+    res: Response
+  ): Promise<void> => {
+    try {
+      const { email, name, avatar } = req.body ?? {};
+
+      if (typeof email !== 'string' || !email.trim()) {
+        res.status(400).json({
+          error: 'A valid email is required.',
+        });
+        return;
+      }
+
+      const authData = await authService.loginOrRegister({
+        email: email.trim().toLowerCase(),
+        name: typeof name === 'string' ? name : undefined,
+        avatar: typeof avatar === 'string' ? avatar : undefined,
+      });
+
+      res.status(200).json({
+        message: 'Authentication successful.',
+        ...authData,
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Authentication failed.';
+
+      console.error('OAuth handler error:', message);
+      res.status(400).json({ error: message });
+    }
+  },
 };
