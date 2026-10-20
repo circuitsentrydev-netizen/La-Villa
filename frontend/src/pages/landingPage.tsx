@@ -1,17 +1,64 @@
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { getImageUrl } from '../utils/imageUrl';
 
 interface StayCard {
-  id: string;
+  id: string | number;
   accommodation: string;
   location: string;
   starRating: number;
   nightlyRate: string;
   description?: string;
   images?: string[];
+}
+
+interface AccommodationResponse {
+  id: string | number;
+  name?: string;
+  accommodation?: string;
+  address?: string;
+  location?: string;
+  star_rating?: number | string;
+  starRating?: number | string;
+  price_per_night?: number | string;
+  pricePerNight?: number | string;
+  nightly_rate?: number | string;
+  nightlyRate?: number | string;
+  description?: string;
+  images?: string[] | string;
+  status?: string;
+}
+
+function parseImages(images?: string[] | string): string[] {
+  if (Array.isArray(images)) return images;
+
+  if (typeof images === 'string' && images.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(images);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return [images];
+    }
+  }
+
+  return [];
+}
+
+function formatPrice(value?: number | string): string {
+  if (value === undefined || value === null || value === '') {
+    return 'Price on request';
+  }
+
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) return String(value);
+
+  return new Intl.NumberFormat('en-ZA', {
+    style: 'currency',
+    currency: 'ZAR',
+    maximumFractionDigits: 2,
+  }).format(amount) + ' / night';
 }
 
 export function LandingPage() {
@@ -22,125 +69,128 @@ export function LandingPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const fetchStays = async () => {
+    const controller = new AbortController();
+
+    async function fetchStays() {
       try {
         setLoading(true);
         setError('');
 
         const response = await fetch(
-          `${API_BASE_URL}/accommodations?status=Published`
+          `${API_BASE_URL}/accommodations?status=Published`,
+          { signal: controller.signal }
         );
 
         if (!response.ok) {
-          throw new Error('Unable to load accommodations.');
+          throw new Error(`Unable to load accommodations (${response.status}).`);
         }
 
-        const data = await response.json();
+        const data: unknown = await response.json();
 
-        if (!Array.isArray(data)) {
-          throw new Error('The server returned an unexpected response.');
-        }
+        const records: AccommodationResponse[] = Array.isArray(data)
+          ? data
+          : data &&
+              typeof data === 'object' &&
+              'accommodations' in data &&
+              Array.isArray(data.accommodations)
+            ? data.accommodations as AccommodationResponse[]
+            : [];
 
-        setFeaturedStays(data.slice(0, 3));
+        const stays = records
+          .filter((item) => !item.status || item.status === 'Published')
+          .map((item): StayCard => ({
+            id: item.id,
+            accommodation: item.name ?? item.accommodation ?? 'Untitled property',
+            location: item.address ?? item.location ?? 'Location not provided',
+            starRating: Number(item.star_rating ?? item.starRating ?? 0),
+            nightlyRate: formatPrice(
+              item.price_per_night ??
+              item.pricePerNight ??
+              item.nightly_rate ??
+              item.nightlyRate
+            ),
+            description: item.description ?? '',
+            images: parseImages(item.images),
+          }));
+
+        setFeaturedStays(stays.slice(0, 3));
       } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+
         console.error('Error loading featured stays:', err);
+
         setError(
           err instanceof Error
             ? err.message
             : 'Something went wrong while loading properties.'
         );
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    };
+    }
 
     void fetchStays();
+
+    return () => controller.abort();
   }, []);
 
-  const openAccommodation = (id: string) => {
-    navigate(`/accommodations/${encodeURIComponent(id)}`);
+  const openAccommodation = (id: string | number) => {
+    navigate(`/accommodations/${encodeURIComponent(String(id))}`);
   };
 
   return (
     <div className="landing-page">
-
-      {/* TOP NAVIGATION */}
       <nav className="landing-nav">
         <div>
-          <strong
-            className="brand-name"
-            onClick={() => navigate('/')}
-          >
+          <strong className="brand-name" onClick={() => navigate('/')}>
             La Villa
           </strong>
-
           <span className="brand-tagline">Lekker Stays</span>
         </div>
 
         <div className="nav-actions">
-          <button
-            type="button"
-            className="sign-in-button"
-            onClick={() => navigate('/login')}
-          >
+          <button type="button" className="sign-in-button" onClick={() => navigate('/login')}>
             Sign in
           </button>
-
-          <button
-            type="button"
-            className="sign-up-button"
-            onClick={() => navigate('/register')}
-          >
+          <button type="button" className="sign-up-button" onClick={() => navigate('/register')}>
             Sign up
           </button>
         </div>
       </nav>
 
-      {/* HERO SECTION */}
       <header className="hero-section">
         <div className="hero-content">
           <h1>Your next chapter starts with a stay.</h1>
-
-          <p>
-            A change of scene is closer than you think.
-          </p>
-
-          <button
-            type="button"
-            className="explore-button"
-            onClick={() => navigate('/discover')}
-          >
+          <p>A change of scene is closer than you think.</p>
+          <button type="button" className="explore-button" onClick={() => navigate('/discover')}>
             Explore properties
           </button>
         </div>
       </header>
 
-      {/* HIGHLIGHTS */}
       <section className="highlights-bar">
         <div>Slow Mornings</div>
         <div>Stay Connected</div>
         <div>Clear Checkout</div>
       </section>
 
-      {/* FEATURED ACCOMMODATIONS */}
       <section className="featured-section">
         <h2>Discover Stays</h2>
 
         {loading ? (
-          <div className="listing-message">
-            Loading available properties...
-          </div>
+          <div className="listing-message">Loading available properties...</div>
         ) : error ? (
-          <div className="listing-message error-message">
+          <div className="listing-message error-message" role="alert">
             {error}
-            <p>
-              Check that your backend server is running and try again.
-            </p>
+            <p>Check that your backend server and database are running.</p>
+            <button type="button" onClick={() => window.location.reload()}>
+              Try again
+            </button>
           </div>
         ) : featuredStays.length === 0 ? (
           <div className="listing-message">
-            No properties are currently live. Sign in using your Admin
-            account to upload your first accommodation.
+            No properties are currently live. Sign in using your Admin account
+            to publish an accommodation.
           </div>
         ) : (
           <div className="stay-grid">
@@ -153,16 +203,12 @@ export function LandingPage() {
                 aria-label={`View details for ${stay.accommodation}`}
                 onClick={() => openAccommodation(stay.id)}
                 onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' ||
-                    event.key === ' '
-                  ) {
+                  if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     openAccommodation(stay.id);
                   }
                 }}
               >
-                {/* ACCOMMODATION IMAGE */}
                 <div className="stay-card-image">
                   {stay.images && stay.images.length > 0 ? (
                     <img
@@ -170,27 +216,18 @@ export function LandingPage() {
                       alt={stay.accommodation}
                       loading="lazy"
                       onError={(event) => {
-                        console.error(
-                          'Failed to load accommodation image:',
-                          event.currentTarget.src
-                        );
+                        console.error('Failed to load accommodation image:', event.currentTarget.src);
                         event.currentTarget.style.display = 'none';
                       }}
                     />
                   ) : (
-                    <div className="stay-image-placeholder">
-                      No image available
-                    </div>
+                    <div className="stay-image-placeholder">No image available</div>
                   )}
                 </div>
 
-                {/* ACCOMMODATION INFORMATION */}
                 <div className="stay-card-content">
-                  <h3>{stay.accommodation || 'Untitled property'}</h3>
-
-                  <p className="stay-location">
-                    {stay.location || 'Location not provided'}
-                  </p>
+                  <h3>{stay.accommodation}</h3>
+                  <p className="stay-location">{stay.location}</p>
 
                   {stay.description && (
                     <p className="stay-description">
@@ -204,15 +241,10 @@ export function LandingPage() {
                     <span className="stay-rating">
                       ★ {stay.starRating || 'Unrated'}
                     </span>
-
-                    <span className="stay-price">
-                      {stay.nightlyRate || 'Price on request'}
-                    </span>
+                    <span className="stay-price">{stay.nightlyRate}</span>
                   </div>
 
-                  <span className="view-details">
-                    View details →
-                  </span>
+                  <span className="view-details">View details →</span>
                 </div>
               </div>
             ))}
@@ -220,20 +252,17 @@ export function LandingPage() {
         )}
       </section>
 
-      {/* FOOTER */}
       <footer className="landing-footer">
         <div className="footer-content">
           <span>© 2026 La Villa Stays. All rights reserved.</span>
-
           <div className="footer-links">
             <span>Privacy Policy</span>
             <span>Terms of Service</span>
           </div>
         </div>
       </footer>
-
     </div>
   );
-}
 
+}
 export default LandingPage;
