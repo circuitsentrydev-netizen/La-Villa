@@ -1,15 +1,25 @@
 
 import { Request, Response } from "express";
-import {
-  HotelService,
-  CreateAccommodationDTO,
-  CreateRoomInventoryDTO,
-} from "../services/hotelService";
+import {HotelService,CreateAccommodationDTO,CreateRoomInventoryDTO,} from "../services/hotelService";
 
 const hotelService = new HotelService();
 
 const idFrom = (req: Request): string =>
   String(req.params.accommodationId ?? "");
+
+const isDuplicateAccommodationName = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+
+  const dbError = error as {
+    code?: string;
+    constraint?: string;
+  };
+
+  return (
+    dbError.code === "23505" &&
+    dbError.constraint === "accommodations_name_key"
+  );
+};
 
 const parseArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
@@ -19,17 +29,13 @@ const parseArray = (value: unknown): string[] => {
       .filter(Boolean);
   }
 
-  if (typeof value !== "string" || !value.trim()) {
-    return [];
-  }
+  if (typeof value !== "string" || !value.trim()) return [];
 
   const input = value.trim();
 
-  // Handle JSON arrays such as ["free wifi","swimming pool"].
   if (input.startsWith("[")) {
     try {
       const parsed: unknown = JSON.parse(input);
-
       if (Array.isArray(parsed)) {
         return parsed
           .filter((item) => item != null)
@@ -37,17 +43,14 @@ const parseArray = (value: unknown): string[] => {
           .filter(Boolean);
       }
     } catch {
-      // Continue to comma-separated parsing.
+      // Continue to other formats.
     }
   }
 
-  // Handle PostgreSQL array text such as {"free wifi","pool"}.
   if (input.startsWith("{") && input.endsWith("}")) {
     const inner = input.slice(1, -1).trim();
-
     if (!inner) return [];
 
-    // Split on commas outside quoted values.
     const values =
       inner.match(/"(?:[^"\\]|\\.)*"|[^,]+/g) ?? [];
 
@@ -69,11 +72,7 @@ const parseArray = (value: unknown): string[] => {
       .filter(Boolean);
   }
 
-  // Handle ordinary form values: free wifi, swimming pool.
-  return input
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return input.split(",").map((item) => item.trim()).filter(Boolean);
 };
 
 const imagePaths = (req: Request): string[] =>
@@ -82,22 +81,14 @@ const imagePaths = (req: Request): string[] =>
   );
 
 const existingImages = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.map(String).filter(Boolean);
-  }
-
-  if (typeof value !== "string" || !value.trim()) {
-    return [];
-  }
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== "string" || !value.trim()) return [];
 
   try {
     const parsed: unknown = JSON.parse(value);
-
-    if (Array.isArray(parsed)) {
-      return parsed.map(String).filter(Boolean);
-    }
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
   } catch {
-    // A plain string may represent a single image path.
+    // A plain string may be one image path.
   }
 
   return [value];
@@ -122,11 +113,7 @@ function buildDTO(
     throw new Error("Price per night must be greater than zero.");
   }
 
-  if (
-    !Number.isFinite(starRating) ||
-    starRating < 1 ||
-    starRating > 5
-  ) {
+  if (!Number.isFinite(starRating) || starRating < 1 || starRating > 5) {
     throw new Error("Star rating must be between 1 and 5.");
   }
 
@@ -136,7 +123,6 @@ function buildDTO(
 
   const numberOrNull = (value: unknown): number | null => {
     if (value === "" || value == null) return null;
-
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   };
@@ -161,9 +147,8 @@ const handleError = (
   error: unknown,
   fallback: string,
   status = 500
-) => {
+): void => {
   console.error(fallback, error);
-
   res.status(status).json({
     message: error instanceof Error ? error.message : fallback,
   });
@@ -174,15 +159,10 @@ export async function getAllAccommodations(
   res: Response
 ): Promise<void> {
   try {
-    const accommodations =
-      await hotelService.getFilteredAccommodations(
-        typeof req.query.search === "string"
-          ? req.query.search
-          : undefined,
-        typeof req.query.status === "string"
-          ? req.query.status
-          : undefined
-      );
+    const accommodations = await hotelService.getFilteredAccommodations(
+      typeof req.query.search === "string" ? req.query.search : undefined,
+      typeof req.query.status === "string" ? req.query.status : undefined
+    );
 
     res.status(200).json({ accommodations });
   } catch (error) {
@@ -195,8 +175,7 @@ export async function getAccommodationById(
   res: Response
 ): Promise<void> {
   try {
-    const accommodation =
-      await hotelService.getAccommodationById(idFrom(req));
+    const accommodation = await hotelService.getAccommodationById(idFrom(req));
 
     if (!accommodation) {
       res.status(404).json({ message: "Accommodation not found." });
@@ -215,23 +194,25 @@ export async function createAccommodation(
 ): Promise<void> {
   try {
     const dto = buildDTO(req.body, imagePaths(req));
-    const accommodation =
-      await hotelService.insertAccommodation(dto);
+    const accommodation = await hotelService.insertAccommodation(dto);
 
     res.status(201).json({
       message: "Accommodation created successfully.",
       accommodation,
     });
   } catch (error) {
-    // Validation errors should return 400; unexpected database errors 500.
-    if (error instanceof Error && error.message.startsWith("Accommodation")) {
-      handleError(res, error, "Failed to create accommodation.", 400);
+    if (isDuplicateAccommodationName(error)) {
+      res.status(409).json({
+        message:
+          "An accommodation with this name already exists. Please use a different name or edit the existing accommodation.",
+      });
       return;
     }
 
     if (
       error instanceof Error &&
       (
+        error.message.startsWith("Accommodation") ||
         error.message.startsWith("Price per night") ||
         error.message.startsWith("Star rating") ||
         error.message.startsWith("Status must")
@@ -264,8 +245,7 @@ export async function updateAccommodation(
       existingImages(existing.images)
     );
 
-    const accommodation =
-      await hotelService.updateAccommodation(id, dto);
+    const accommodation = await hotelService.updateAccommodation(id, dto);
 
     if (!accommodation) {
       res.status(404).json({ message: "Accommodation not found." });
@@ -277,6 +257,14 @@ export async function updateAccommodation(
       accommodation,
     });
   } catch (error) {
+    if (isDuplicateAccommodationName(error)) {
+      res.status(409).json({
+        message:
+          "Another accommodation already uses this name. Please choose a different name.",
+      });
+      return;
+    }
+
     handleError(res, error, "Failed to update accommodation.");
   }
 }
@@ -286,8 +274,7 @@ export async function deleteAccommodation(
   res: Response
 ): Promise<void> {
   try {
-    const deleted =
-      await hotelService.deleteAccommodation(idFrom(req));
+    const deleted = await hotelService.deleteAccommodation(idFrom(req));
 
     if (!deleted) {
       res.status(404).json({ message: "Accommodation not found." });
@@ -298,12 +285,7 @@ export async function deleteAccommodation(
       message: "Accommodation deleted successfully.",
     });
   } catch (error) {
-    handleError(
-      res,
-      error,
-      "Failed to delete accommodation.",
-      409
-    );
+    handleError(res, error, "Failed to delete accommodation.", 409);
   }
 }
 
@@ -314,7 +296,6 @@ export async function addRoomInventory(
   try {
     const id = idFrom(req);
     const { roomTypeName, totalCapacity, nightlyRate } = req.body;
-
     const capacity = Number(totalCapacity);
     const rate = Number(nightlyRate);
 
@@ -324,9 +305,7 @@ export async function addRoomInventory(
     }
 
     if (!String(roomTypeName ?? "").trim()) {
-      res.status(400).json({
-        message: "Room type name is required.",
-      });
+      res.status(400).json({ message: "Room type name is required." });
       return;
     }
 
@@ -362,9 +341,7 @@ export async function getRoomInventory(
   res: Response
 ): Promise<void> {
   try {
-    const rooms =
-      await hotelService.getRoomInventory(idFrom(req));
-
+    const rooms = await hotelService.getRoomInventory(idFrom(req));
     res.status(200).json({ rooms });
   } catch (error) {
     handleError(res, error, "Failed to load room inventory.");
@@ -376,9 +353,7 @@ export async function getDashboardSnapshot(
   res: Response
 ): Promise<void> {
   try {
-    const snapshot =
-      await hotelService.computeDashboardSnapshot();
-
+    const snapshot = await hotelService.computeDashboardSnapshot();
     res.status(200).json({ snapshot });
   } catch (error) {
     handleError(res, error, "Failed to load dashboard summary.");
