@@ -15,6 +15,24 @@ interface Stay {
   images?: string[] | string;
 }
 
+ 
+interface AccommodationResponse {
+  id: string | number;
+  name?: string;
+  accommodation?: string;
+  address?: string;
+  location?: string;
+  star_rating?: number | string;
+  starRating?: number | string;
+  price_per_night?: number | string;
+  pricePerNight?: number | string;
+  nightly_rate?: number | string;
+  nightlyRate?: number | string;
+  status?: string;
+  description?: string;
+  images?: string[] | string;
+}
+
 export function DiscoverStays() {
   const navigate = useNavigate();
   const [stays, setStays] = useState<Stay[]>([]);
@@ -22,28 +40,76 @@ export function DiscoverStays() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const fetchStays = async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/accommodations?status=Published`
-        );
+   
+const fetchStays = async () => {
+  try {
+    setLoading(true);
+    setError('');
 
-        if (!response.ok) {
-          throw new Error('Unable to load accommodations.');
-        }
+    const response = await fetch(
+      `${API_BASE_URL}/accommodations?status=Published`
+    );
 
-        const data: unknown = await response.json();
+    if (!response.ok) {
+      throw new Error(`Unable to load accommodations (${response.status}).`);
+    }
 
-        if (!Array.isArray(data)) {
-          throw new Error('Unexpected accommodation data received.');
-        }
+    const data: unknown = await response.json();
 
-        setStays(data as Stay[]);
-      } catch (err) {
-        console.error('Error loading accommodations:', err);
-        setError('Unable to load accommodations. Please try again.');
-      } finally {
-        setLoading(false);
+    // Support common API response structures.
+    let records: unknown = data;
+
+    if (!Array.isArray(records) && records && typeof records === 'object') {
+      const result = records as Record<string, unknown>;
+      const nested = result.data;
+
+      if (Array.isArray(result.accommodations)) {
+        records = result.accommodations;
+      } else if (Array.isArray(nested)) {
+        records = nested;
+      } else if (nested && typeof nested === 'object') {
+        const nestedData = nested as Record<string, unknown>;
+        records = nestedData.accommodations ?? nestedData.results;
+      } else {
+        records = result.results;
+      }
+    }
+
+    if (!Array.isArray(records)) {
+      console.error('Unexpected accommodations API response:', data);
+      throw new Error('The server returned an unsupported accommodations format.');
+    }
+
+    const normalized: Stay[] = (records as AccommodationResponse[])
+      .filter((item) =>
+        !item.status || item.status.toLowerCase() === 'published'
+      )
+      .map((item) => ({
+        id: String(item.id),
+        accommodation: item.name ?? item.accommodation ?? 'Untitled property',
+        location: item.address ?? item.location ?? 'Location not provided',
+        starRating: Number(item.star_rating ?? item.starRating ?? 0),
+        nightlyRate:
+          item.price_per_night ??
+          item.pricePerNight ??
+          item.nightly_rate ??
+          item.nightlyRate ??
+          '',
+        status: item.status ?? 'Published',
+        description: item.description ?? '',
+        images: item.images,
+      }));
+
+    setStays(normalized);
+  } catch (err) {
+    console.error('Error loading accommodations:', err);
+    setError(
+      err instanceof Error
+        ? err.message
+        : 'Unable to load accommodations. Please try again.'
+    );
+  } finally {
+    setLoading(false); 
       }
     };
 
