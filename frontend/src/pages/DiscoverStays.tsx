@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { getImageUrl } from '../utils/imageUrl';
+import { Link } from 'react-router-dom';
 
 interface Stay {
   id: string;
@@ -346,8 +347,10 @@ const fetchStays = async () => {
                           ? `${stay.description.slice(0, 120)}...`
                           : stay.description}
                       </p>
+                    
                     )}
-
+                     </div>
+                     
                     <div
                       style={{
                         display: 'flex',
@@ -367,28 +370,37 @@ const fetchStays = async () => {
                         style={{
                           color: '#1B4D3E',
                           fontSize: '16px',
-                        }}
-                      >
-                        {stay.nightlyRate !== '' &&
-                        stay.nightlyRate !== null &&
-                        stay.nightlyRate !== undefined
-                          ? `R ${stay.nightlyRate}`
-                          : 'Price on request'}
-                      </strong>
-                    </div>
+               }}
+                >
+                 {stay.nightlyRate !== '' &&
+             stay.nightlyRate !== null &&
+             stay.nightlyRate !== undefined
+              ? `R ${stay.nightlyRate}`
+                 : 'Price on request'}
+                  </strong>
+             </div>
 
-                    <p
-                      style={{
-                        margin: '16px 0 0',
-                        color: '#1B4D3E',
-                        fontSize: '13px',
-                        fontWeight: 700,
-                      }}
-                    >
-                      View details →
-                    </p>
-                  </div>
-                </article>
+              
+              <div
+             style={{
+               margin: "16px 0 0",
+    color: "#1B4D3E",
+    fontSize: "13px",
+    fontWeight: 700,
+  }}
+>
+  <Link
+    to={`/accommodations/${stay.id}`}
+    style={{
+      color: "#1B4D3E",
+      textDecoration: "none",
+      display: "inline-block",
+    }}
+  >
+    View details →
+  </Link>
+</div>
+       </article>
               );
             })}
           </div>

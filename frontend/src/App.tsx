@@ -11,6 +11,7 @@ import { AddAccommodationForm } from "./pages/AddAccommodationForm";
 import { DiscoverStays } from "./pages/DiscoverStays";
 import AccommodationDetails from "./pages/AccommodationDetails";
 import ReservationsPage from "./pages/ReservationsPage";
+import BookingPage from "./pages/BookingPage";
 
 function App() {
   return (
@@ -29,6 +30,7 @@ function App() {
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
       <Route path="/admin/reservations" element={<ReservationsPage />} />
+      <Route path="/reservations" element={<BookingPage />} />
 
       {/* Create a new accommodation */}
       <Route

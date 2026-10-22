@@ -113,7 +113,7 @@ export function LandingPage() {
             images: parseImages(item.images),
           }));
 
-        setFeaturedStays(stays.slice(0, 3));
+        setFeaturedStays(stays.slice(0, 6));
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
 
