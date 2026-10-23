@@ -9,6 +9,7 @@ import hotelRoute from "./routes/hotelRoute";
 import userRoute from "./routes/userRoutes";
 import roomRoute from "./routes/roomRoute";
 import reservationRoute from "./routes/reservationRoute";
+import favoriteRoute from "./routes/favoriteRoute";
 
 dotenv.config();
 
@@ -29,6 +30,7 @@ app.use("/api", userRoute);
 app.use("/api", hotelRoute);
 app.use("/api/rooms", roomRoute);
 app.use("/api/reservations", reservationRoute);
+app.use("/api/favorites", favoriteRoute);
 
 const startServer = async () => {
   try {

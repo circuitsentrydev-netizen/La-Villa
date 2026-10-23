@@ -1,18 +1,18 @@
 
 import { Router } from "express";
-import {createReservation, getAllReservations,updateReservationStatus,} from "../controllers/reservationController";
+import {
+  createReservation,
+  getAllReservations,
+  getMyReservations,
+  updateReservationStatus,
+} from "../controllers/reservationController";
 import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// A logged-in customer must submit a reservation.
+router.post("/", authMiddleware.requireAuth, createReservation);
 
-router.post("/",
-     authMiddleware.requireAuth,
-      createReservation
-    );
-
-// Admin-only reservation management.
+router.get("/mine", authMiddleware.requireAuth, getMyReservations);
 
 router.get(
   "/",

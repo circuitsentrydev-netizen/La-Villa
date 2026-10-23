@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { pool } from "../config/database";
 
 interface CreateReservationInput {
+  user_id: string;
   guest_name: string;
   accommodation_id: string;
   room_inventory_id: number;
@@ -32,12 +33,11 @@ export class ReservationService {
       }
 
       const room = roomResult.rows[0];
-      const guests = input.guest_count;
 
       if (
-        !Number.isInteger(guests) ||
-        guests < 1 ||
-        guests > Number(room.total_capacity)
+        !Number.isInteger(input.guest_count) ||
+        input.guest_count < 1 ||
+        input.guest_count > Number(room.total_capacity)
       ) {
         throw new Error("GUEST_CAPACITY_EXCEEDED");
       }
@@ -87,20 +87,21 @@ export class ReservationService {
 
       const result = await client.query(
         `INSERT INTO reservations (
-          reservation_code, guest_name, accommodation_id,
-          room_inventory_id, guest_count, check_in_date,
-          check_out_date, status, total_amount
+          user_id, reservation_code, guest_name,
+          accommodation_id, room_inventory_id, guest_count,
+          check_in_date, check_out_date, status, total_amount
         )
-        VALUES ($1,$2,$3,$4,$5,$6::date,$7::date,'Pending',$8)
-        RETURNING id, reservation_code, guest_name, guest_count,
-          accommodation_id, room_inventory_id, check_in_date,
-          check_out_date, status, total_amount`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8::date,'Pending',$9)
+        RETURNING id, user_id, reservation_code, guest_name,
+          guest_count, accommodation_id, room_inventory_id,
+          check_in_date, check_out_date, status, total_amount`,
         [
+          input.user_id,
           code,
           input.guest_name.trim(),
           input.accommodation_id,
           input.room_inventory_id,
-          guests,
+          input.guest_count,
           input.check_in_date,
           input.check_out_date,
           total,
@@ -115,6 +116,26 @@ export class ReservationService {
     } finally {
       client.release();
     }
+  }
+
+  async getUserReservations(userId: string) {
+    const result = await pool.query(
+      `SELECT
+         r.id, r.reservation_code, r.guest_name,
+         r.guest_count, r.accommodation_id, r.room_inventory_id,
+         r.check_in_date, r.check_out_date, r.status,
+         r.total_amount, a.name AS accommodation_name,
+         a.address AS accommodation_address,
+         ri.room_type_name
+       FROM reservations r
+       LEFT JOIN accommodations a ON a.id = r.accommodation_id
+       LEFT JOIN room_inventories ri ON ri.id = r.room_inventory_id
+       WHERE r.user_id = $1
+       ORDER BY r.check_in_date DESC, r.id DESC`,
+      [userId]
+    );
+
+    return result.rows;
   }
 
   async getAllReservations() {
