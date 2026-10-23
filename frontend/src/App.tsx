@@ -1,7 +1,6 @@
 
 import "./App.css";
 import { Routes, Route } from "react-router-dom";
-
 import LandingPage from "./pages/landingPage";
 import LoginPage from "./pages/loginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -12,6 +11,9 @@ import { DiscoverStays } from "./pages/DiscoverStays";
 import AccommodationDetails from "./pages/AccommodationDetails";
 import ReservationsPage from "./pages/ReservationsPage";
 import BookingPage from "./pages/BookingPage";
+import ManageRoomTypes from "./pages/ManageRoomTypes";
+import FavoritesPage from "./pages/FavoritePage";
+import AccountPage from "./pages/AccountPage";
 
 function App() {
   return (
@@ -27,32 +29,40 @@ function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
+      {/* Customer account */}
+      <Route path="/account" element={<AccountPage />} />
+
+      {/* Saved accommodations */}
+      <Route path="/favorites" element={<FavoritesPage />} />
+
+      {/* Admin */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin/dashboard" element={<AdminDashboard />} />
-      <Route path="/admin/reservations" element={<ReservationsPage />} />
+      <Route
+        path="/admin/reservations"
+        element={<ReservationsPage />}
+      />
+
+      {/* Customer booking */}
       <Route path="/reservations" element={<BookingPage />} />
 
-      {/* Create a new accommodation */}
+      {/* Admin room-type management */}
+      <Route
+        path="/admin/accommodations/:accommodationId/rooms"
+        element={<ManageRoomTypes />}
+      />
+
       <Route
         path="/admin/accommodations/new"
         element={<AddAccommodationForm />}
       />
 
-      {/* Edit an existing accommodation */}
       <Route
         path="/admin/accommodations/:accommodationId/edit"
         element={<AddAccommodationForm />}
       />
 
-      <Route
-        path="*"
-        element={
-          <div style={{ padding: "50px", textAlign: "center" }}>
-            <h1>404 - Page Not Found</h1>
-            <p>The page you are looking for does not exist.</p>
-          </div>
-        }
-      />
+      <Route path="*" element={<div>404 - Page Not Found</div>} />
     </Routes>
   );
 }

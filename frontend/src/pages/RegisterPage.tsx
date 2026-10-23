@@ -1,39 +1,50 @@
 
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
-import { type AppDispatch, type RootState } from '../app/store';
-import { clearAuthError, registerUser } from '../features/auth/authSlice';
+import React, { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { type AppDispatch, type RootState } from "../app/store";
+import { clearAuthError, registerUser } from "../features/auth/authSlice";
+
+interface RegisterLocationState {
+  from?: string;
+}
 
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const dispatch = useDispatch<AppDispatch>();
-  const { loading, error } = useSelector(
-    (state: RootState) => state.auth
-  );
+  const { loading, error } = useSelector((state: RootState) => state.auth);
 
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const navigationState = (location.state ?? {}) as RegisterLocationState;
+
+  const safeReturnPath = (path?: string) => {
+    if (!path || !path.startsWith("/") || path.startsWith("//")) return "/";
+    if (path.startsWith("/admin")) return "/";
+    return path;
+  };
+
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [validationError, setValidationError] = useState('');
+  const [validationError, setValidationError] = useState("");
 
   const handleRegisterSubmit = async (
-    e: React.FormEvent<HTMLFormElement>
+    event: React.FormEvent<HTMLFormElement>
   ) => {
-    e.preventDefault();
-    setValidationError('');
+    event.preventDefault();
+    setValidationError("");
 
     const trimmedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
 
     if (!trimmedName || !normalizedEmail || !password) {
-      setValidationError('Please fill in all required fields.');
+      setValidationError("Please fill in all required fields.");
       return;
     }
 
     if (password.length < 8) {
-      setValidationError('Your password must contain at least 8 characters.');
+      setValidationError("Your password must contain at least 8 characters.");
       return;
     }
 
@@ -46,330 +57,193 @@ export function RegisterPage() {
     );
 
     if (registerUser.fulfilled.match(result)) {
-      navigate('/login', {
+      navigate("/login", {
         replace: true,
         state: {
           registeredEmail: normalizedEmail,
-          message: 'Account created successfully. Please sign in.',
+          message: "Account created successfully. Please sign in.",
+          from: safeReturnPath(navigationState.from),
         },
       });
     }
   };
 
   const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '12px',
-    borderRadius: '6px',
-    border: '1px solid #cbd5e1',
-    fontSize: '14px',
-    boxSizing: 'border-box',
+    width: "100%",
+    padding: 12,
+    borderRadius: 6,
+    border: "1px solid #cbd5e1",
+    fontSize: 14,
+    boxSizing: "border-box",
   };
 
   const linkStyle: React.CSSProperties = {
-    color: '#1B4D3E',
+    color: "#1B4D3E",
     fontWeight: 600,
-    cursor: 'pointer',
+    cursor: "pointer",
+    border: 0,
+    background: "none",
   };
 
   return (
     <main
       style={{
-        minHeight: '100vh',
-        background: '#ffffff',
-        fontFamily: 'system-ui, sans-serif',
-        padding: '32px 24px',
-        boxSizing: 'border-box',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
+        minHeight: "100vh",
+        background: "#fff",
+        fontFamily: "system-ui, sans-serif",
+        padding: "32px 24px",
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
       }}
     >
-      <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <h2
-          style={{
-            fontSize: '28px',
-            color: '#1B4D3E',
-            margin: '0 0 4px',
-            fontWeight: 700,
-          }}
-        >
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <h2 style={{ fontSize: 28, color: "#1B4D3E", margin: "0 0 4px" }}>
           La Villa
         </h2>
-        <span
-          style={{
-            fontSize: '12px',
-            color: '#64748b',
-            textTransform: 'uppercase',
-            letterSpacing: '0.5px',
-          }}
-        >
-          lekker stays
+        <span style={{ fontSize: 12, color: "#64748b", letterSpacing: ".5px" }}>
+          LEKKER STAYS
         </span>
       </div>
 
-      <section style={{ maxWidth: '360px', margin: '0 auto', width: '100%' }}>
-        <h1
-          style={{
-            fontSize: '24px',
-            fontWeight: 600,
-            margin: '0 0 8px',
-            color: '#111',
-          }}
-        >
+      <section style={{ maxWidth: 360, margin: "0 auto", width: "100%" }}>
+        <h1 style={{ fontSize: 24, margin: "0 0 8px", color: "#111" }}>
           Create an account.
         </h1>
-
-        <p
-          style={{
-            fontSize: '14px',
-            color: '#64748b',
-            margin: '0 0 28px',
-          }}
-        >
-          Join La Villa today to discover considered stays and book your next
-          escape.
+        <p style={{ fontSize: 14, color: "#64748b", margin: "0 0 28px" }}>
+          Join La Villa today to discover stays and book your next escape.
         </p>
 
-        <h3
-          style={{
-            fontSize: '16px',
-            fontWeight: 600,
-            margin: '0 0 16px',
-            color: '#111',
-          }}
-        >
-          Get started
-        </h3>
-
         {(validationError || error) && (
-          <div
-            role="alert"
-            style={{
-              color: '#dc2626',
-              fontSize: '14px',
-              marginBottom: '12px',
-              fontWeight: 500,
-            }}
-          >
+          <p role="alert" style={{ color: "#dc2626", fontSize: 14 }}>
             {validationError || error}
-          </div>
+          </p>
         )}
 
         <form
           onSubmit={handleRegisterSubmit}
-          style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+          style={{ display: "flex", flexDirection: "column", gap: 16 }}
         >
-          <div>
-            <label
-              htmlFor="register-name"
-              style={{
-                fontSize: '13px',
-                color: '#334155',
-                display: 'block',
-                marginBottom: '6px',
-                fontWeight: 500,
-              }}
-            >
+          <label>
+            <span style={{ display: "block", marginBottom: 6, fontSize: 13 }}>
               Full name
-            </label>
+            </span>
             <input
-              id="register-name"
+              required
               type="text"
-              required
               autoComplete="name"
-              placeholder="John Doe"
               value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setValidationError('');
+              onChange={(event) => {
+                setName(event.target.value);
+                setValidationError("");
                 if (error) dispatch(clearAuthError());
               }}
               style={inputStyle}
             />
-          </div>
+          </label>
 
-          <div>
-            <label
-              htmlFor="register-email"
-              style={{
-                fontSize: '13px',
-                color: '#334155',
-                display: 'block',
-                marginBottom: '6px',
-                fontWeight: 500,
-              }}
-            >
+          <label>
+            <span style={{ display: "block", marginBottom: 6, fontSize: 13 }}>
               Email address
-            </label>
+            </span>
             <input
-              id="register-email"
-              type="email"
               required
+              type="email"
               autoComplete="email"
-              placeholder="alex.morgan@example.com"
               value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setValidationError('');
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setValidationError("");
                 if (error) dispatch(clearAuthError());
               }}
               style={inputStyle}
             />
-          </div>
+          </label>
 
-          <div>
-            <label
-              htmlFor="register-password"
-              style={{
-                fontSize: '13px',
-                color: '#334155',
-                display: 'block',
-                marginBottom: '6px',
-                fontWeight: 500,
-              }}
-            >
+          <label>
+            <span style={{ display: "block", marginBottom: 6, fontSize: 13 }}>
               Password
-            </label>
-
-            <div style={{ position: 'relative' }}>
+            </span>
+            <div style={{ position: "relative" }}>
               <input
-                id="register-password"
-                type={showPassword ? 'text' : 'password'}
                 required
                 minLength={8}
+                type={showPassword ? "text" : "password"}
                 autoComplete="new-password"
-                placeholder="At least 8 characters"
                 value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setValidationError('');
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                  setValidationError("");
                   if (error) dispatch(clearAuthError());
                 }}
-                style={{ ...inputStyle, paddingRight: '60px' }}
+                style={{ ...inputStyle, paddingRight: 60 }}
               />
-
               <button
                 type="button"
-                onClick={() => setShowPassword((previous) => !previous)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((value) => !value)}
                 style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  transform: "translateY(-50%)",
                   border: 0,
-                  background: 'none',
-                  color: '#64748b',
-                  fontSize: '13px',
-                  cursor: 'pointer',
+                  background: "transparent",
+                  cursor: "pointer",
+                  color: "#64748b",
                 }}
               >
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? "Hide" : "Show"}
               </button>
             </div>
-          </div>
+          </label>
 
           <button
             type="submit"
             disabled={loading}
             style={{
-              background: '#1B4D3E',
-              color: '#ffffff',
-              width: '100%',
+              background: "#1B4D3E",
+              color: "#fff",
+              width: "100%",
               border: 0,
-              padding: '14px',
-              borderRadius: '6px',
+              padding: 14,
+              borderRadius: 6,
               fontWeight: 600,
-              fontSize: '15px',
-              marginTop: '12px',
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: loading ? "wait" : "pointer",
               opacity: loading ? 0.7 : 1,
+              marginTop: 8,
             }}
           >
-            {loading ? 'Creating account...' : 'Create account'}
+            {loading ? "Creating account..." : "Create account"}
           </button>
         </form>
 
-        <p
-          style={{
-            textAlign: 'center',
-            fontSize: '12px',
-            color: '#64748b',
-            margin: '24px 0',
-          }}
-        >
-          Social sign-in is currently unavailable. Please register using your
-          email address.
+        <p style={{ textAlign: "center", fontSize: 13, color: "#64748b", marginTop: 24 }}>
+          Already have an account?{" "}
+          <button
+            type="button"
+            onClick={() =>
+              navigate("/login", {
+                state: { from: safeReturnPath(navigationState.from) },
+              })
+            }
+            style={linkStyle}
+          >
+            Sign in →
+          </button>
         </p>
 
-        <div
-          style={{
-            textAlign: 'center',
-            fontSize: '13px',
-            color: '#64748b',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-          }}
-        >
-          <div>
-            Already have an account?{' '}
-            <button
-              type="button"
-              onClick={() => navigate('/login')}
-              style={{
-                ...linkStyle,
-                border: 0,
-                background: 'none',
-              }}
-            >
-              Sign in →
-            </button>
-          </div>
+        <p style={{ textAlign: "center", fontSize: 13 }}>
+          <button type="button" onClick={() => navigate("/")} style={linkStyle}>
+            Browse stays as a guest →
+          </button>
+        </p>
 
-          <div>
-            Just exploring?{' '}
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              style={{
-                ...linkStyle,
-                border: 0,
-                background: 'none',
-              }}
-            >
-              Browse stays as a guest →
-            </button>
-          </div>
-
-          <div
-            style={{
-              marginTop: '16px',
-              paddingTop: '16px',
-              borderTop: '1px dashed #e2e8f0',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => navigate('/admin/login')}
-              style={{
-                color: '#64748b',
-                fontSize: '12px',
-                cursor: 'pointer',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                fontWeight: 500,
-                border: 0,
-                background: 'none',
-              }}
-            >
-              La Villa Staff?{' '}
-              <strong style={{ color: '#1B4D3E' }}>
-                Admin Portal login →
-              </strong>
-            </button>
-          </div>
-        </div>
+        <p style={{ textAlign: "center", fontSize: 12, marginTop: 24 }}>
+          <button type="button" onClick={() => navigate("/admin/login")} style={{ ...linkStyle, color: "#64748b" }}>
+            Staff? Admin Portal login →
+          </button>
+        </p>
       </section>
     </main>
   );
