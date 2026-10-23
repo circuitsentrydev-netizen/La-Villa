@@ -126,38 +126,100 @@ export const userController = {
     }
   },
 
-  // 4. GET USER PROFILE BY ID
+ 
+  // GET /profile/me
   getUserProfile: async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
-      const { rows } = await query("SELECT id, email, name, display_picture, role FROM users WHERE id = \$1", [id]);
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ message: "User not found" });
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required." });
       }
-      return res.status(200).json(rows[0]);
+
+      const { rows } = await query(
+        `SELECT id, email, name, avatar, role
+         FROM users
+         WHERE id = $1`,
+        [req.user.id]
+      );
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "User not found." });
+      }
+
+      return res.status(200).json({ user: rows[0] });
     } catch (error) {
-      return res.status(500).json({ message: "Error fetching profile" });
+      console.error("Get profile error:", error);
+      return res.status(500).json({ error: "Error fetching profile." });
     }
   },
 
   // 5. UPDATE USER PROFILE
+// PATCH /profile/me
   updateUserProfile: async (req: Request, res: Response) => {
     try {
-      const { id } = req.params;
-      const { email, name, display_picture } = req.body;
-      if (!email) {
-        return res.status(400).json({ message: "Email is required to update profile" });
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required." });
       }
+
+      const body = req.body ?? {};
+      const fields = Object.keys(body);
+
+      if (
+        fields.length === 0 ||
+        fields.some((field) => !["name", "avatar"].includes(field))
+      ) {
+        return res.status(400).json({
+          error: "Provide name and/or avatar only.",
+        });
+      }
+
+      const { name, avatar } = body;
+
+      if (
+        name !== undefined &&
+        (typeof name !== "string" ||
+          name.trim().length === 0 ||
+          name.trim().length > 100)
+      ) {
+        return res.status(400).json({
+          error: "Name must contain 1–100 characters.",
+        });
+      }
+
+      if (
+        avatar !== undefined &&
+        avatar !== null &&
+        (typeof avatar !== "string" || avatar.length > 2048)
+      ) {
+        return res.status(400).json({ error: "Invalid avatar value." });
+      }
+
       const { rows } = await query(
-        "UPDATE users SET email = \$1, name = \$2, display_picture = \$3 WHERE id = \$4 RETURNING id, email, name, display_picture, role",
-        [email, name || null, display_picture || null, id]
+        `UPDATE users
+         SET name = CASE WHEN $1 THEN $2 ELSE name END,
+             avatar = CASE WHEN $3 THEN $4 ELSE avatar END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5
+         RETURNING id, email, name, avatar, role`,
+        [
+          name !== undefined,
+          name !== undefined ? name.trim() : null,
+          avatar !== undefined,
+          avatar !== undefined ? avatar : null,
+          req.user.id,
+        ]
       );
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ message: "User not found" });
+
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "User not found." });
       }
-      return res.status(200).json({ message: "Profile updated successfully", user: rows[0] });
+
+      return res.status(200).json({
+        message: "Profile updated successfully.",
+        user: rows[0],
+      });
     } catch (error) {
-      return res.status(500).json({ message: "Error updating profile" });
+      console.error("Update profile error:", error);
+      return res.status(500).json({ error: "Error updating profile." });
     }
   },
 

@@ -4,13 +4,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-import {
-  getAllAccommodations,
-  getAccommodationById,
-  createAccommodation,
-  updateAccommodation,
-  deleteAccommodation,
-  addRoomInventory,
+import {getAllAccommodations,getAccommodationById,createAccommodation,updateAccommodation,deleteAccommodation,addRoomInventory,
   getRoomInventory,
   getDashboardSnapshot,
 } from "../controllers/hotelController";
