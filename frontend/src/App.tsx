@@ -14,6 +14,7 @@ import BookingPage from "./pages/BookingPage";
 import ManageRoomTypes from "./pages/ManageRoomTypes";
 import FavoritesPage from "./pages/FavoritePage";
 import AccountPage from "./pages/AccountPage";
+import PaymentResultPage from "./pages/PaymentResultPage";
 
 function App() {
   return (
@@ -45,6 +46,10 @@ function App() {
 
       {/* Customer booking */}
       <Route path="/reservations" element={<BookingPage />} />
+      <Route
+  path="/payment-result"
+  element={<PaymentResultPage />}
+/>
 
       {/* Admin room-type management */}
       <Route

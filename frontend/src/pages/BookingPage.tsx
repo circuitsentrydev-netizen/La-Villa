@@ -1,6 +1,6 @@
 
 import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import {Link,useLocation,useNavigate,useSearchParams,} from "react-router-dom";
 import { useSelector } from "react-redux";
 import { type RootState } from "../app/store";
 import { API_BASE_URL } from "../config/api";
@@ -19,19 +19,43 @@ interface Room {
   nightly_rate: number;
 }
 
+interface ReservationResponse {
+  message?: string;
+  error?: string;
+  reservation?: {
+    id?: number | string;
+    reservation_code?: string;
+    status?: string;
+    total_amount?: number | string;
+    payment_status?: string;
+  };
+  payment?: {
+    authorizationUrl?: string;
+    authorization_url?: string;
+    reference?: string;
+    amount?: number | string;
+  };
+  authorizationUrl?: string;
+  authorization_url?: string;
+}
+
 export default function BookingPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
+
   const { user, token, isAuthenticated } = useSelector(
     (state: RootState) => state.auth
   );
 
-  const requestedAccommodationId = searchParams.get("accommodationId") ?? "";
+  const requestedAccommodationId =
+    searchParams.get("accommodationId") ?? "";
 
   const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [accommodationId, setAccommodationId] = useState(requestedAccommodationId);
+  const [accommodationId, setAccommodationId] = useState(
+    requestedAccommodationId
+  );
   const [roomId, setRoomId] = useState("");
   const [guestName, setGuestName] = useState(user?.name ?? "");
   const [guestCount, setGuestCount] = useState(1);
@@ -44,9 +68,13 @@ export default function BookingPage() {
   const [error, setError] = useState("");
 
   const today = new Date();
-  const minDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const minDate = `${today.getFullYear()}-${String(
+    today.getMonth() + 1
+  ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  const selectedRoom = rooms.find((room) => String(room.id) === roomId);
+  const selectedRoom = rooms.find(
+    (room) => String(room.id) === roomId
+  );
 
   const nights =
     checkIn && checkOut && checkOut > checkIn
@@ -57,23 +85,40 @@ export default function BookingPage() {
         )
       : 0;
 
-  const total = selectedRoom ? selectedRoom.nightly_rate * nights : 0;
+  const total = selectedRoom
+    ? selectedRoom.nightly_rate * nights
+    : 0;
 
-  // Preserve the intended booking URL while redirecting visitors to login.
+  // Preserve the intended booking URL when a visitor needs to sign in.
   useEffect(() => {
-    if (!isAuthenticated || !(token || localStorage.getItem("lavilla_token") || localStorage.getItem("token"))) {
+    const activeToken =
+      token ||
+      localStorage.getItem("lavilla_token") ||
+      localStorage.getItem("token");
+
+    if (!isAuthenticated || !activeToken) {
       const intendedPath = `${location.pathname}${location.search}`;
+
       navigate("/login", {
         replace: true,
         state: { from: intendedPath },
       });
     }
-  }, [isAuthenticated, token, navigate, location.pathname, location.search]);
+  }, [
+    isAuthenticated,
+    token,
+    navigate,
+    location.pathname,
+    location.search,
+  ]);
 
   useEffect(() => {
-    if (user?.name) setGuestName(user.name);
+    if (user?.name) {
+      setGuestName(user.name);
+    }
   }, [user?.name]);
 
+  // Load published accommodations.
   useEffect(() => {
     let active = true;
 
@@ -86,43 +131,73 @@ export default function BookingPage() {
           `${API_BASE_URL}/accommodations?status=Published`
         );
 
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(data.error ?? data.message ?? "Unable to load accommodations.");
+          throw new Error(
+            data.error ??
+              data.message ??
+              "Unable to load accommodations."
+          );
         }
 
         const records = Array.isArray(data.accommodations)
           ? data.accommodations
           : Array.isArray(data)
             ? data
-            : [];
+            : Array.isArray(data.data)
+              ? data.data
+              : Array.isArray(data.results)
+                ? data.results
+                : [];
 
-        const items: Accommodation[] = records.map(
-          (item: Record<string, unknown>) => ({
-            id: String(item.id),
-            name: String(item.name ?? item.accommodation ?? "Accommodation"),
+        const items: Accommodation[] = records
+          .filter(
+            (item: Record<string, unknown>) =>
+              !item.status ||
+              String(item.status).toLowerCase() === "published"
+          )
+          .map((item: Record<string, unknown>) => ({
+            id: String(item.id ?? ""),
+            name: String(
+              item.name ?? item.accommodation ?? "Accommodation"
+            ),
             address: String(item.address ?? item.location ?? ""),
-            status: item.status ? String(item.status) : undefined,
-          })
-        );
+            status: item.status
+              ? String(item.status)
+              : undefined,
+          }))
+          .filter((item: Accommodation) => item.id !== "");
 
-        if (active) {
-          setAccommodations(items);
+        if (!active) return;
 
-          if (requestedAccommodationId && items.some((item) => item.id === requestedAccommodationId)) {
-            setAccommodationId(requestedAccommodationId);
-          } else if (requestedAccommodationId) {
-            setError("The selected accommodation could not be found. Please choose another.");
-            setAccommodationId("");
-          }
+        setAccommodations(items);
+
+        if (
+          requestedAccommodationId &&
+          items.some(
+            (item) => item.id === requestedAccommodationId
+          )
+        ) {
+          setAccommodationId(requestedAccommodationId);
+        } else if (requestedAccommodationId) {
+          setAccommodationId("");
+          setError(
+            "The selected accommodation could not be found. Please choose another."
+          );
         }
       } catch (err) {
         if (active) {
-          setError(err instanceof Error ? err.message : "Unable to load accommodations.");
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load accommodations."
+          );
         }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
 
@@ -133,6 +208,7 @@ export default function BookingPage() {
     };
   }, [requestedAccommodationId]);
 
+  // Load room types for the selected accommodation.
   useEffect(() => {
     let active = true;
 
@@ -140,6 +216,7 @@ export default function BookingPage() {
     setRoomId("");
     setGuestCount(1);
     setError("");
+    setMessage("");
 
     if (!accommodationId) {
       setRoomsLoading(false);
@@ -148,12 +225,20 @@ export default function BookingPage() {
 
     setRoomsLoading(true);
 
-    fetch(`${API_BASE_URL}/accommodations/${encodeURIComponent(accommodationId)}/rooms`)
+    fetch(
+      `${API_BASE_URL}/accommodations/${encodeURIComponent(
+        accommodationId
+      )}/rooms`
+    )
       .then(async (response) => {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(data.error ?? data.message ?? "Unable to load room types.");
+          throw new Error(
+            data.error ??
+              data.message ??
+              "Unable to load room types."
+          );
         }
 
         return data;
@@ -161,22 +246,44 @@ export default function BookingPage() {
       .then((data) => {
         if (!active) return;
 
-        const records = Array.isArray(data.rooms) ? data.rooms : [];
+        const records = Array.isArray(data.rooms)
+          ? data.rooms
+          : [];
 
         setRooms(
           records.map((room: Record<string, unknown>) => ({
             id: String(room.id),
-            room_type_name: String(room.room_type_name ?? room.roomTypeName ?? "Room"),
-            total_capacity: Number(room.total_capacity ?? room.totalCapacity ?? 1),
-            nightly_rate: Number(room.nightly_rate ?? room.nightlyRate ?? 0),
+            room_type_name: String(
+              room.room_type_name ??
+                room.roomTypeName ??
+                "Room"
+            ),
+            total_capacity: Number(
+              room.total_capacity ??
+                room.totalCapacity ??
+                1
+            ),
+            nightly_rate: Number(
+              room.nightly_rate ??
+                room.nightlyRate ??
+                0
+            ),
           }))
         );
       })
       .catch((err) => {
-        if (active) setError(err instanceof Error ? err.message : "Unable to load room types.");
+        if (active) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load room types."
+          );
+        }
       })
       .finally(() => {
-        if (active) setRoomsLoading(false);
+        if (active) {
+          setRoomsLoading(false);
+        }
       });
 
     return () => {
@@ -184,17 +291,26 @@ export default function BookingPage() {
     };
   }, [accommodationId]);
 
-  const submitReservation = async (event: React.FormEvent<HTMLFormElement>) => {
+  // Create the reservation and redirect to Paystack checkout.
+  const submitReservation = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
     event.preventDefault();
     setError("");
     setMessage("");
 
     const activeToken =
-      token || localStorage.getItem("lavilla_token") || localStorage.getItem("token");
+      token ||
+      localStorage.getItem("lavilla_token") ||
+      localStorage.getItem("token");
 
     if (!activeToken || !isAuthenticated) {
       const intendedPath = `${location.pathname}${location.search}`;
-      navigate("/login", { state: { from: intendedPath } });
+
+      navigate("/login", {
+        state: { from: intendedPath },
+      });
+
       return;
     }
 
@@ -203,17 +319,31 @@ export default function BookingPage() {
       return;
     }
 
-    if (!guestName.trim() || guestName.trim().length > 120) {
+    if (
+      !guestName.trim() ||
+      guestName.trim().length > 120
+    ) {
       setError("Enter a guest name of up to 120 characters.");
       return;
     }
 
-    if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > selectedRoom.total_capacity) {
-      setError(`This room accommodates up to ${selectedRoom.total_capacity} guests.`);
+    if (
+      !Number.isInteger(guestCount) ||
+      guestCount < 1 ||
+      guestCount > selectedRoom.total_capacity
+    ) {
+      setError(
+        `This room accommodates up to ${selectedRoom.total_capacity} guests.`
+      );
       return;
     }
 
-    if (checkIn < minDate || !checkOut || checkOut <= checkIn) {
+    if (
+      !checkIn ||
+      checkIn < minDate ||
+      !checkOut ||
+      checkOut <= checkIn
+    ) {
       setError("Choose valid check-in and check-out dates.");
       return;
     }
@@ -221,47 +351,107 @@ export default function BookingPage() {
     setSubmitting(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/reservations`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${activeToken}`,
-        },
-        body: JSON.stringify({
-          guest_name: guestName.trim(),
-          accommodation_id: accommodationId,
-          room_inventory_id: selectedRoom.id,
-          guest_count: guestCount,
-          check_in_date: checkIn,
-          check_out_date: checkOut,
-        }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data.message ?? data.error ?? "Reservation could not be submitted.");
-      }
-
-      setMessage(
-        `Reservation submitted successfully! Reference: ${
-          data.reservation?.reservation_code ?? "pending confirmation"
-        }. Your booking is pending confirmation.`
+      const response = await fetch(
+        `${API_BASE_URL}/reservations`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${activeToken}`,
+          },
+          body: JSON.stringify({
+            guest_name: guestName.trim(),
+            accommodation_id: accommodationId,
+            room_inventory_id: selectedRoom.id,
+            guest_count: guestCount,
+            check_in_date: checkIn,
+            check_out_date: checkOut,
+          }),
+        }
       );
 
-      setRoomId("");
-      setGuestCount(1);
-      setCheckIn("");
-      setCheckOut("");
+      const data =
+        (await response
+          .json()
+          .catch(() => ({}))) as ReservationResponse;
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ??
+            data.error ??
+            "Reservation could not be submitted."
+        );
+      }
+
+      // Support the common response shapes used by the backend.
+      const authorizationUrl =
+        data.payment?.authorizationUrl ??
+        data.payment?.authorization_url ??
+        data.authorizationUrl ??
+        data.authorization_url;
+
+      if (!authorizationUrl) {
+        throw new Error(
+          "Your reservation was received, but the payment checkout link was not returned. Please contact support before submitting again."
+        );
+      }
+
+      // Only redirect to a secure Paystack checkout URL.
+      let checkoutUrl: URL;
+
+      try {
+        checkoutUrl = new URL(authorizationUrl);
+      } catch {
+        throw new Error(
+          "The payment checkout link returned by the server is invalid."
+        );
+      }
+
+      if (
+        checkoutUrl.protocol !== "https:" ||
+        !(
+          checkoutUrl.hostname === "paystack.com" ||
+          checkoutUrl.hostname.endsWith(".paystack.com")
+        )
+      ) {
+        throw new Error(
+          "The payment checkout link is not a valid secure Paystack URL."
+        );
+      }
+
+      // Leave the booking page and open the hosted payment checkout.
+      window.location.assign(checkoutUrl.toString());
+      return;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reservation failed.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to start your payment. Please try again."
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  if (!isAuthenticated || !(token || localStorage.getItem("lavilla_token") || localStorage.getItem("token"))) {
-    return <main style={{ maxWidth: 760, margin: "40px auto", padding: 24 }}>Redirecting to sign in...</main>;
+  if (
+    !isAuthenticated ||
+    !(
+      token ||
+      localStorage.getItem("lavilla_token") ||
+      localStorage.getItem("token")
+    )
+  ) {
+    return (
+      <main
+        style={{
+          maxWidth: 760,
+          margin: "40px auto",
+          padding: 24,
+        }}
+      >
+        Redirecting to sign in...
+      </main>
+    );
   }
 
   const fieldStyle: React.CSSProperties = {
@@ -275,10 +465,24 @@ export default function BookingPage() {
   };
 
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
-      <Link to="/discover">← Browse accommodations</Link>
+    <main
+      style={{
+        maxWidth: 760,
+        margin: "40px auto",
+        padding: 24,
+        fontFamily: "system-ui, sans-serif",
+      }}
+    >
+      <Link to="/discover">
+        ← Browse accommodations
+      </Link>
+
       <h1>Make a Reservation</h1>
-      <p>Select your preferred accommodation and complete your booking details.</p>
+
+      <p>
+        Select your preferred accommodation and complete your
+        booking details.
+      </p>
 
       {loading ? (
         <p>Loading accommodations...</p>
@@ -286,22 +490,36 @@ export default function BookingPage() {
         <form onSubmit={submitReservation}>
           <label>
             Accommodation
+
             <select
               required
               value={accommodationId}
               onChange={(event) => {
                 const nextId = event.target.value;
+
                 setAccommodationId(nextId);
-                setSearchParams(nextId ? { accommodationId: nextId } : {});
+
+                setSearchParams(
+                  nextId
+                    ? { accommodationId: nextId }
+                    : {}
+                );
+
                 setError("");
                 setMessage("");
               }}
               style={fieldStyle}
             >
-              <option value="">Select an accommodation</option>
+              <option value="">
+                Select an accommodation
+              </option>
+
               {accommodations.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}{item.address ? ` — ${item.address}` : ""}
+                  {item.name}
+                  {item.address
+                    ? ` — ${item.address}`
+                    : ""}
                 </option>
               ))}
             </select>
@@ -309,7 +527,11 @@ export default function BookingPage() {
 
           {accommodationId && (
             <p>
-              <Link to={`/accommodations/${encodeURIComponent(accommodationId)}`}>
+              <Link
+                to={`/accommodations/${encodeURIComponent(
+                  accommodationId
+                )}`}
+              >
                 View accommodation details
               </Link>
             </p>
@@ -317,6 +539,7 @@ export default function BookingPage() {
 
           <label>
             Room type
+
             <select
               required
               value={roomId}
@@ -324,38 +547,59 @@ export default function BookingPage() {
                 setRoomId(event.target.value);
                 setGuestCount(1);
                 setError("");
+                setMessage("");
               }}
-              disabled={!accommodationId || roomsLoading || rooms.length === 0}
+              disabled={
+                !accommodationId ||
+                roomsLoading ||
+                rooms.length === 0
+              }
               style={fieldStyle}
             >
               <option value="">
-                {roomsLoading ? "Loading room types..." : "Select a room type"}
+                {roomsLoading
+                  ? "Loading room types..."
+                  : "Select a room type"}
               </option>
+
               {rooms.map((room) => (
-                <option key={room.id} value={String(room.id)}>
-                  {room.room_type_name} — R{Number(room.nightly_rate).toFixed(2)} per night
+                <option
+                  key={room.id}
+                  value={String(room.id)}
+                >
+                  {room.room_type_name} — R
+                  {Number(room.nightly_rate).toFixed(2)} per night
                 </option>
               ))}
             </select>
           </label>
 
-          {accommodationId && !roomsLoading && rooms.length === 0 && (
-            <p>No room types are currently configured for this accommodation.</p>
-          )}
+          {accommodationId &&
+            !roomsLoading &&
+            rooms.length === 0 && (
+              <p>
+                No room types are currently configured for
+                this accommodation.
+              </p>
+            )}
 
           <label>
             Guest name
+
             <input
               required
               maxLength={120}
               value={guestName}
-              onChange={(event) => setGuestName(event.target.value)}
+              onChange={(event) =>
+                setGuestName(event.target.value)
+              }
               style={fieldStyle}
             />
           </label>
 
           <label>
             Number of guests
+
             <input
               required
               type="number"
@@ -363,62 +607,145 @@ export default function BookingPage() {
               max={selectedRoom?.total_capacity ?? 1}
               value={guestCount}
               disabled={!selectedRoom}
-              onChange={(event) => setGuestCount(Number(event.target.value))}
+              onChange={(event) =>
+                setGuestCount(Number(event.target.value))
+              }
               style={fieldStyle}
             />
           </label>
 
-          {selectedRoom && <p>Maximum capacity: {selectedRoom.total_capacity} guests.</p>}
+          {selectedRoom && (
+            <p>
+              Maximum capacity: {selectedRoom.total_capacity}{" "}
+              guests.
+            </p>
+          )}
 
           <label>
             Check-in
+
             <input
               required
               type="date"
               min={minDate}
               value={checkIn}
-              onChange={(event) => setCheckIn(event.target.value)}
+              onChange={(event) => {
+                setCheckIn(event.target.value);
+
+                if (
+                  checkOut &&
+                  event.target.value &&
+                  checkOut <= event.target.value
+                ) {
+                  setCheckOut("");
+                }
+
+                setError("");
+                setMessage("");
+              }}
               style={fieldStyle}
             />
           </label>
 
           <label>
             Check-out
+
             <input
               required
               type="date"
               min={checkIn || minDate}
               value={checkOut}
-              onChange={(event) => setCheckOut(event.target.value)}
+              onChange={(event) => {
+                setCheckOut(event.target.value);
+                setError("");
+                setMessage("");
+              }}
               style={fieldStyle}
             />
           </label>
 
           {nights > 0 && selectedRoom && (
-            <section>
+            <section
+              style={{
+                margin: "20px 0",
+                padding: 18,
+                background: "#FAF9F6",
+                border: "1px solid #e5e7eb",
+                borderRadius: 8,
+              }}
+            >
               <p>Number of nights: {nights}</p>
-              <h3>Estimated total: R{total.toFixed(2)}</h3>
-              <p>The final amount is calculated by the server.</p>
+
+              <p>
+                Nightly rate: R
+                {selectedRoom.nightly_rate.toFixed(2)}
+              </p>
+
+              <h3>
+                Estimated total: R{total.toFixed(2)}
+              </h3>
+
+              <p>
+                The final amount is calculated by the server.
+                You will be redirected to Paystack to pay the
+                full reservation amount before your booking is
+                confirmed.
+              </p>
             </section>
           )}
 
-          {error && <p role="alert" style={{ color: "#b91c1c" }}>{error}</p>}
-          {message && <p role="status" style={{ color: "#166534" }}>{message}</p>}
+          {error && (
+            <p
+              role="alert"
+              style={{
+                color: "#b91c1c",
+                marginBottom: 16,
+              }}
+            >
+              {error}
+            </p>
+          )}
+
+          {message && (
+            <p
+              role="status"
+              style={{
+                color: "#166534",
+                marginBottom: 16,
+              }}
+            >
+              {message}
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={submitting || !selectedRoom || !guestName.trim()}
+            disabled={
+              submitting ||
+              loading ||
+              roomsLoading ||
+              !selectedRoom ||
+              !guestName.trim() ||
+              !checkIn ||
+              !checkOut ||
+              checkOut <= checkIn
+            }
             style={{
               padding: "12px 22px",
               border: 0,
               borderRadius: 6,
-              background: "#1B4D3E",
+              background:
+                submitting ? "#6b8b80" : "#1B4D3E",
               color: "#fff",
-              cursor: submitting ? "wait" : "pointer",
+              cursor: submitting
+                ? "wait"
+                : "pointer",
               fontWeight: 600,
             }}
           >
-            {submitting ? "Submitting..." : "Submit Reservation"}
+            {submitting
+              ? "Preparing secure payment..."
+              : "Reserve & Pay Now"}
           </button>
         </form>
       )}
