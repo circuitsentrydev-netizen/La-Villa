@@ -1,8 +1,10 @@
 
 import { Request, Response } from "express";
 import { ReservationService } from "../services/reservationService";
+import { PaystackService } from "../services/paystackService";
 
 const reservationService = new ReservationService();
+const paystackService = new PaystackService();
 
 const allowedStatuses = [
   "Pending",
@@ -182,6 +184,177 @@ export const createReservation = async (
 };
 
 /**
+ * Verify a Paystack transaction for the authenticated customer.
+ *
+ * The browser callback is not proof of payment. The server verifies
+ * the transaction with Paystack and checks its reference, status,
+ * amount and currency before confirming the reservation.
+ */
+export const verifyPayment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const authenticatedUser = req.user;
+
+    if (
+      !authenticatedUser?.id ||
+      !isValidUuid(authenticatedUser.id)
+    ) {
+      res.status(401).json({
+        error: "Please sign in again to verify your payment.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    const reference =
+      typeof req.body?.reference === "string"
+        ? req.body.reference.trim()
+        : "";
+
+    if (!reference || reference.length > 100) {
+      res.status(400).json({
+        error: "A valid payment reference is required.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    // Only allow a customer to verify a payment belonging to their account.
+    const payment = await reservationService.getPaymentForUser(
+      reference,
+      authenticatedUser.id
+    );
+
+    if (!payment) {
+      res.status(404).json({
+        error: "Payment reference not found for this account.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    // Return the already confirmed result safely on repeated requests.
+    if (String(payment.status).toLowerCase() === "paid") {
+      res.status(200).json({
+        message: "Your payment has already been verified.",
+        paymentStatus: "paid",
+        payment: {
+          status: "Paid",
+        },
+        reservation: {
+          reservation_code: payment.reservation_code,
+          status: "Confirmed",
+          payment_status: "Paid",
+        },
+      });
+      return;
+    }
+
+    // Verify directly with Paystack using the server-side secret key.
+    const verified = await paystackService.verifyTransaction(reference);
+
+    if (verified.reference !== reference) {
+      res.status(400).json({
+        error: "The payment reference did not match.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    const transactionStatus = String(verified.status).toLowerCase();
+
+    if (transactionStatus !== "success") {
+      if (
+        ["failed", "abandoned", "reversed"].includes(transactionStatus)
+      ) {
+        await reservationService.markPaymentFailed(reference);
+
+        res.status(200).json({
+          message:
+            "The payment was not completed successfully. Your reservation is not confirmed.",
+          paymentStatus: "failed",
+          payment: {
+            status: "Failed",
+          },
+        });
+        return;
+      }
+
+      // Pending or processing transactions must not be marked as paid.
+      res.status(200).json({
+        message:
+          "Your payment is still being processed. Please check again shortly.",
+        paymentStatus: "pending",
+        payment: {
+          status: "Pending",
+        },
+      });
+      return;
+    }
+
+    // Paystack reports amounts in minor units: for ZAR, cents.
+    const expectedAmountMinor = Number(payment.amount_minor);
+    const verifiedAmountMinor = Number(verified.amount);
+    const verifiedCurrency = String(verified.currency ?? "").toUpperCase();
+
+    if (
+      !Number.isSafeInteger(expectedAmountMinor) ||
+      expectedAmountMinor <= 0 ||
+      !Number.isSafeInteger(verifiedAmountMinor) ||
+      verifiedAmountMinor !== expectedAmountMinor ||
+      verifiedCurrency !== "ZAR"
+    ) {
+      console.error("Paystack verification amount/currency mismatch:", {
+        reference,
+        expectedAmountMinor,
+        verifiedAmountMinor,
+        verifiedCurrency,
+      });
+
+      res.status(400).json({
+        error:
+          "The payment amount or currency could not be validated. Your reservation has not been confirmed.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    // This service method must revalidate the stored amount/currency and
+    // atomically update the payment and reservation inside a transaction.
+    const confirmed = await reservationService.confirmPayment(
+      reference,
+      verifiedAmountMinor,
+      verifiedCurrency
+    );
+
+    res.status(200).json({
+      message:
+        "Your payment has been verified successfully. Your reservation is confirmed.",
+      paymentStatus: "paid",
+      payment: {
+        status: "Paid",
+      },
+      reservation: {
+        reservation_code:
+          confirmed?.reservation_code ?? payment.reservation_code,
+        status: "Confirmed",
+        payment_status: "Paid",
+      },
+    });
+  } catch (error) {
+    console.error("Error verifying Paystack payment:", error);
+
+    res.status(500).json({
+      error:
+        "Unable to verify your payment right now. Please try again shortly.",
+      paymentStatus: "error",
+    });
+  }
+};
+
+/**
  * Return reservation history for the currently authenticated user only.
  */
 export const getMyReservations = async (
@@ -278,6 +451,13 @@ export const updateReservationStatus = async (
       reservation,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "PAYMENT_REQUIRED") {
+      res.status(409).json({
+        error: "Payment must be completed before confirming this reservation.",
+      });
+      return;
+    }
+
     console.error("Error updating reservation:", error);
 
     res.status(500).json({
