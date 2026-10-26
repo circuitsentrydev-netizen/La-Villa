@@ -1,5 +1,6 @@
 
 import { Request, Response } from "express";
+import { randomBytes } from "crypto";
 import { ReservationService } from "../services/reservationService";
 import { PaystackService } from "../services/paystackService";
 
@@ -28,37 +29,49 @@ const isValidDate = (value: unknown): value is string => {
 
 const localToday = (): string => {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
 
-  return `${year}-${month}-${day}`;
+  return [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
 };
 
-const isValidUuid = (value: unknown): value is string => {
-  return (
-    typeof value === "string" &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      value
-    )
+const isValidUuid = (value: unknown): value is string =>
+  typeof value === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
   );
-};
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Unknown error";
 
 /**
- * Create a reservation for the authenticated user.
- *
- * The user ID comes from the verified JWT, never from the request body.
+ * Create a reservation and initialize Paystack checkout.
  */
 export const createReservation = async (
   req: Request,
   res: Response
 ): Promise<void> => {
-  try {
-    const authenticatedUser = req.user;
+  let reservationCreated = false;
 
-    if (!authenticatedUser?.id || !isValidUuid(authenticatedUser.id)) {
+  try {
+    const user = req.user;
+
+    if (!user?.id || !isValidUuid(user.id)) {
       res.status(401).json({
         message: "You must be signed in to make a reservation.",
+      });
+      return;
+    }
+
+    const email =
+      typeof user.email === "string" ? user.email.trim() : "";
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({
+        message:
+          "Your account needs a valid email address before payment can be initialized.",
       });
       return;
     }
@@ -91,7 +104,7 @@ export const createReservation = async (
     }
 
     const inventoryId = Number(room_inventory_id);
-    const guests = Number(guest_count);
+    const guestCount = Number(guest_count);
 
     if (!Number.isInteger(inventoryId) || inventoryId <= 0) {
       res.status(400).json({
@@ -100,7 +113,7 @@ export const createReservation = async (
       return;
     }
 
-    if (!Number.isInteger(guests) || guests < 1) {
+    if (!Number.isInteger(guestCount) || guestCount < 1) {
       res.status(400).json({
         message: "Guest count must be at least 1.",
       });
@@ -129,21 +142,131 @@ export const createReservation = async (
     }
 
     const reservation = await reservationService.createReservation({
-      user_id: authenticatedUser.id,
+      user_id: user.id,
       guest_name: guest_name.trim(),
       accommodation_id,
       room_inventory_id: inventoryId,
-      guest_count: guests,
+      guest_count: guestCount,
       check_in_date,
       check_out_date,
     });
 
+    reservationCreated = true;
+
+    const totalAmount = Number(reservation.total_amount);
+    const amountMinor = Math.round(totalAmount * 100);
+
+    if (
+      !Number.isFinite(totalAmount) ||
+      totalAmount <= 0 ||
+      !Number.isSafeInteger(amountMinor) ||
+      amountMinor <= 0
+    ) {
+      console.error("Invalid reservation payment amount:", {
+        reservationId: reservation.id,
+        totalAmount,
+        amountMinor,
+      });
+
+      res.status(500).json({
+        message:
+          "Your reservation was created, but its payment amount is invalid. Please contact support before submitting another reservation.",
+        reservation,
+        paymentStatus: "error",
+      });
+      return;
+    }
+
+    const reference = `LV-${randomBytes(16)
+      .toString("hex")
+      .toUpperCase()}`;
+
+    await reservationService.createPaymentAttempt({
+      reservation_id: Number(reservation.id),
+      reference,
+      amount_minor: amountMinor,
+    });
+
+    let checkout: Awaited<
+      ReturnType<PaystackService["initializeTransaction"]>
+    >;
+
+    try {
+      checkout = await paystackService.initializeTransaction({
+        email,
+        amountMinor,
+        reference,
+        reservationId: reservation.id,
+        reservationCode: reservation.reservation_code,
+      });
+    } catch (error) {
+      console.error("Paystack initialization failed:", error);
+
+      res.status(502).json({
+        message:
+          "Your reservation was created, but Paystack checkout could not be initialized. Please contact support before submitting another reservation.",
+        reservation,
+        paymentStatus: "pending",
+        reference,
+      });
+      return;
+    }
+
+    const authorizationUrl = checkout?.authorizationUrl;
+
+    let parsedCheckoutUrl: URL | null = null;
+
+    if (typeof authorizationUrl === "string") {
+      try {
+        parsedCheckoutUrl = new URL(authorizationUrl);
+      } catch {
+        parsedCheckoutUrl = null;
+      }
+    }
+
+    const validCheckoutUrl =
+      parsedCheckoutUrl?.protocol === "https:" &&
+      (
+        parsedCheckoutUrl.hostname === "paystack.com" ||
+        parsedCheckoutUrl.hostname.endsWith(".paystack.com")
+      );
+
+    if (!validCheckoutUrl) {
+      console.error("Paystack returned an invalid checkout URL:", {
+        reservationId: reservation.id,
+        reference,
+      });
+
+      res.status(502).json({
+        message:
+          "Your reservation was created, but Paystack did not return a valid checkout URL. Please contact support before submitting another reservation.",
+        reservation,
+        paymentStatus: "pending",
+        reference,
+      });
+      return;
+    }
+
     res.status(201).json({
-      message: "Reservation submitted successfully.",
+      message:
+        "Reservation created. Continue to Paystack to complete payment.",
       reservation,
+      paymentStatus: "pending",
+      reference,
+      authorization_url: authorizationUrl,
+      authorizationUrl,
+      payment: {
+        reference,
+        status: "Pending",
+        authorization_url: authorizationUrl,
+        authorizationUrl,
+      },
     });
   } catch (error) {
-    const errors: Record<string, { status: number; message: string }> = {
+    const knownErrors: Record<
+      string,
+      { status: number; message: string }
+    > = {
       ROOM_NOT_FOUND: {
         status: 404,
         message: "That room type was not found for this accommodation.",
@@ -164,43 +287,51 @@ export const createReservation = async (
         status: 400,
         message: "Unable to calculate the reservation total.",
       },
+      RESERVATION_NOT_PAYABLE: {
+        status: 409,
+        message:
+          "This reservation cannot currently be paid. Please contact support.",
+      },
     };
 
-    if (error instanceof Error && errors[error.message]) {
-      const knownError = errors[error.message];
+    const message = getErrorMessage(error);
+    const knownError = knownErrors[message];
 
+    if (knownError) {
       res.status(knownError.status).json({
         message: knownError.message,
       });
       return;
     }
 
-    console.error("Error creating reservation:", error);
+    console.error(
+      reservationCreated
+        ? "Reservation created, but payment setup failed:"
+        : "Failed to create reservation:",
+      error
+    );
 
     res.status(500).json({
-      message: "Failed to create reservation.",
+      message: reservationCreated
+        ? "Your reservation was created, but payment setup failed. Please contact support before submitting another reservation."
+        : "Failed to create reservation.",
+      paymentStatus: reservationCreated ? "pending" : undefined,
     });
   }
 };
 
 /**
- * Verify a Paystack transaction for the authenticated customer.
- *
- * The browser callback is not proof of payment. The server verifies
- * the transaction with Paystack and checks its reference, status,
- * amount and currency before confirming the reservation.
+ * Verify a payment with Paystack.
+ * A browser redirect is never proof of payment.
  */
 export const verifyPayment = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const authenticatedUser = req.user;
+    const user = req.user;
 
-    if (
-      !authenticatedUser?.id ||
-      !isValidUuid(authenticatedUser.id)
-    ) {
+    if (!user?.id || !isValidUuid(user.id)) {
       res.status(401).json({
         error: "Please sign in again to verify your payment.",
         paymentStatus: "error",
@@ -221,10 +352,9 @@ export const verifyPayment = async (
       return;
     }
 
-    // Only allow a customer to verify a payment belonging to their account.
     const payment = await reservationService.getPaymentForUser(
       reference,
-      authenticatedUser.id
+      user.id
     );
 
     if (!payment) {
@@ -235,14 +365,15 @@ export const verifyPayment = async (
       return;
     }
 
-    // Return the already confirmed result safely on repeated requests.
-    if (String(payment.status).toLowerCase() === "paid") {
+    if (
+      String(payment.payment_attempt_status ?? payment.status).toLowerCase() ===
+        "paid" &&
+      String(payment.payment_status).toLowerCase() === "paid"
+    ) {
       res.status(200).json({
         message: "Your payment has already been verified.",
         paymentStatus: "paid",
-        payment: {
-          status: "Paid",
-        },
+        payment: { status: "Paid" },
         reservation: {
           reservation_code: payment.reservation_code,
           status: "Confirmed",
@@ -252,10 +383,9 @@ export const verifyPayment = async (
       return;
     }
 
-    // Verify directly with Paystack using the server-side secret key.
     const verified = await paystackService.verifyTransaction(reference);
 
-    if (verified.reference !== reference) {
+    if (String(verified.reference ?? "") !== reference) {
       res.status(400).json({
         error: "The payment reference did not match.",
         paymentStatus: "error",
@@ -263,38 +393,30 @@ export const verifyPayment = async (
       return;
     }
 
-    const transactionStatus = String(verified.status).toLowerCase();
+    const transactionStatus = String(verified.status ?? "").toLowerCase();
 
     if (transactionStatus !== "success") {
-      if (
-        ["failed", "abandoned", "reversed"].includes(transactionStatus)
-      ) {
+      if (["failed", "abandoned", "reversed"].includes(transactionStatus)) {
         await reservationService.markPaymentFailed(reference);
 
         res.status(200).json({
           message:
             "The payment was not completed successfully. Your reservation is not confirmed.",
           paymentStatus: "failed",
-          payment: {
-            status: "Failed",
-          },
+          payment: { status: "Failed" },
         });
         return;
       }
 
-      // Pending or processing transactions must not be marked as paid.
       res.status(200).json({
         message:
           "Your payment is still being processed. Please check again shortly.",
         paymentStatus: "pending",
-        payment: {
-          status: "Pending",
-        },
+        payment: { status: "Pending" },
       });
       return;
     }
 
-    // Paystack reports amounts in minor units: for ZAR, cents.
     const expectedAmountMinor = Number(payment.amount_minor);
     const verifiedAmountMinor = Number(verified.amount);
     const verifiedCurrency = String(verified.currency ?? "").toUpperCase();
@@ -321,8 +443,6 @@ export const verifyPayment = async (
       return;
     }
 
-    // This service method must revalidate the stored amount/currency and
-    // atomically update the payment and reservation inside a transaction.
     const confirmed = await reservationService.confirmPayment(
       reference,
       verifiedAmountMinor,
@@ -333,9 +453,7 @@ export const verifyPayment = async (
       message:
         "Your payment has been verified successfully. Your reservation is confirmed.",
       paymentStatus: "paid",
-      payment: {
-        status: "Paid",
-      },
+      payment: { status: "Paid" },
       reservation: {
         reservation_code:
           confirmed?.reservation_code ?? payment.reservation_code,
@@ -344,6 +462,20 @@ export const verifyPayment = async (
       },
     });
   } catch (error) {
+    const message = getErrorMessage(error);
+
+    if (
+      message === "RESERVATION_NOT_PAYABLE" ||
+      message === "RESERVATION_ALREADY_PAID"
+    ) {
+      res.status(409).json({
+        error:
+          "This reservation cannot be confirmed through this payment attempt. Please contact La Villa if you believe you completed payment.",
+        paymentStatus: "error",
+      });
+      return;
+    }
+
     console.error("Error verifying Paystack payment:", error);
 
     res.status(500).json({
@@ -355,29 +487,26 @@ export const verifyPayment = async (
 };
 
 /**
- * Return reservation history for the currently authenticated user only.
+ * GET /api/reservations/mine
+ * Return reservations belonging to the authenticated customer.
  */
 export const getMyReservations = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    const authenticatedUser = req.user;
+    const user = req.user;
 
-    if (!authenticatedUser?.id || !isValidUuid(authenticatedUser.id)) {
+    if (!user?.id || !isValidUuid(user.id)) {
       res.status(401).json({
         message: "You must be signed in to view your reservations.",
       });
       return;
     }
 
-    const reservations = await reservationService.getUserReservations(
-      authenticatedUser.id
-    );
+    const reservations = await reservationService.getUserReservations(user.id);
 
-    res.status(200).json({
-      reservations,
-    });
+    res.status(200).json({ reservations });
   } catch (error) {
     console.error("Error fetching user's reservations:", error);
 
@@ -388,7 +517,68 @@ export const getMyReservations = async (
 };
 
 /**
- * Existing admin endpoint: return all reservations.
+ * Customer cancellation.
+ * Only Pending, unpaid reservations can be cancelled online.
+ */
+export const cancelMyReservation = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const user = req.user;
+
+    if (!user?.id || !isValidUuid(user.id)) {
+      res.status(401).json({
+        message: "Please sign in again to cancel your reservation.",
+      });
+      return;
+    }
+
+    const id = Number(req.params.id);
+
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      res.status(400).json({
+        message: "Invalid reservation ID.",
+      });
+      return;
+    }
+
+    const reservation =
+      await reservationService.cancelPendingReservation(id, user.id);
+
+    res.status(200).json({
+      message: "Your unpaid reservation has been cancelled.",
+      reservation,
+    });
+  } catch (error) {
+    const message = getErrorMessage(error);
+
+    if (message === "RESERVATION_NOT_FOUND") {
+      res.status(404).json({
+        message: "Reservation not found.",
+      });
+      return;
+    }
+
+    if (message === "CANCELLATION_NOT_ALLOWED") {
+      res.status(409).json({
+        message:
+          "This reservation cannot be cancelled online. Please contact La Villa if it has already been paid or confirmed.",
+      });
+      return;
+    }
+
+    console.error("Error cancelling customer reservation:", error);
+
+    res.status(500).json({
+      message: "Unable to cancel your reservation right now.",
+    });
+  }
+};
+
+/**
+ * GET /api/reservations
+ * Admin: return all reservations.
  */
 export const getAllReservations = async (
   _req: Request,
@@ -397,11 +587,9 @@ export const getAllReservations = async (
   try {
     const reservations = await reservationService.getAllReservations();
 
-    res.status(200).json({
-      reservations,
-    });
+    res.status(200).json({ reservations });
   } catch (error) {
-    console.error("Error fetching reservations:", error);
+    console.error("Error fetching all reservations:", error);
 
     res.status(500).json({
       error: "Failed to fetch reservations.",
@@ -410,7 +598,8 @@ export const getAllReservations = async (
 };
 
 /**
- * Existing admin endpoint: update a reservation's status.
+ * PATCH /api/reservations/:id/status
+ * Admin: update reservation status.
  */
 export const updateReservationStatus = async (
   req: Request,
@@ -418,9 +607,9 @@ export const updateReservationStatus = async (
 ): Promise<void> => {
   try {
     const id = Number(req.params.id);
-    const { status } = req.body ?? {};
+    const status = req.body?.status;
 
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
       res.status(400).json({
         error: "Invalid reservation ID.",
       });
@@ -451,9 +640,12 @@ export const updateReservationStatus = async (
       reservation,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "PAYMENT_REQUIRED") {
+    const message = getErrorMessage(error);
+
+    if (message === "PAYMENT_REQUIRED") {
       res.status(409).json({
-        error: "Payment must be completed before confirming this reservation.",
+        error:
+          "Payment must be completed before confirming this reservation.",
       });
       return;
     }

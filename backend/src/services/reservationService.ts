@@ -185,11 +185,6 @@ export class ReservationService {
     return result.rows[0] ?? null;
   }
 
-  /**
-   * Mark a payment and reservation as paid in one transaction.
-   * The reference, amount, currency and Paystack status must
-   * already have been checked against Paystack's verification API.
-   */
   async confirmPayment(
     reference: string,
     verifiedAmountMinor: number,
@@ -238,7 +233,6 @@ export class ReservationService {
         throw new Error("PAYMENT_AMOUNT_MISMATCH");
       }
 
-      // Repeated verification of the same successful payment is safe.
       if (
         payment.payment_status === "Paid" &&
         payment.payment_attempt_status === "Paid"
@@ -252,6 +246,7 @@ export class ReservationService {
         };
       }
 
+      // Never confirm a cancelled or completed reservation.
       if (
         payment.reservation_status === "Cancelled" ||
         payment.reservation_status === "Completed"
@@ -259,7 +254,6 @@ export class ReservationService {
         throw new Error("RESERVATION_NOT_PAYABLE");
       }
 
-      // Do not allow another attempt to pay a reservation already paid.
       if (payment.payment_status === "Paid") {
         throw new Error("RESERVATION_ALREADY_PAID");
       }
@@ -322,7 +316,6 @@ export class ReservationService {
 
       const payment = paymentResult.rows[0];
 
-      // Never overwrite a successful payment.
       if (payment.status !== "Paid") {
         await client.query(
           `UPDATE payments
@@ -331,7 +324,6 @@ export class ReservationService {
           [payment.id]
         );
 
-        // Cancel only if no other attempt has paid and it is pending.
         await client.query(
           `UPDATE reservations r
            SET payment_status = 'Failed',
@@ -350,6 +342,87 @@ export class ReservationService {
       }
 
       await client.query("COMMIT");
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original error.
+      }
+
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Customer self-service cancellation.
+   * Only the owner of a Pending, unpaid reservation may cancel it.
+   * Paid or confirmed reservations must be handled by La Villa.
+   */
+  async cancelPendingReservation(id: number, userId: string) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query(
+        `SELECT id, user_id, status, payment_status
+         FROM reservations
+         WHERE id = $1
+         FOR UPDATE`,
+        [id]
+      );
+
+      if (!result.rowCount) {
+        throw new Error("RESERVATION_NOT_FOUND");
+      }
+
+      const reservation = result.rows[0];
+
+      // Return the same error for another user's reservation
+      // so its existence is not disclosed.
+      if (reservation.user_id !== userId) {
+        throw new Error("RESERVATION_NOT_FOUND");
+      }
+
+      if (
+        reservation.status !== "Pending" ||
+        reservation.payment_status !== "Pending"
+      ) {
+        throw new Error("CANCELLATION_NOT_ALLOWED");
+      }
+
+      const paymentResult = await client.query(
+        `SELECT id
+         FROM payments
+         WHERE reservation_id = $1
+           AND status = 'Paid'
+         LIMIT 1`,
+        [id]
+      );
+
+      if (paymentResult.rowCount) {
+        throw new Error("CANCELLATION_NOT_ALLOWED");
+      }
+
+      const updated = await client.query(
+        `UPDATE reservations
+         SET status = 'Cancelled'
+         WHERE id = $1
+           AND user_id = $2
+           AND status = 'Pending'
+           AND payment_status = 'Pending'
+         RETURNING id, reservation_code, status, payment_status`,
+        [id, userId]
+      );
+
+      if (!updated.rowCount) {
+        throw new Error("CANCELLATION_NOT_ALLOWED");
+      }
+
+      await client.query("COMMIT");
+      return updated.rows[0];
     } catch (error) {
       try {
         await client.query("ROLLBACK");
@@ -406,7 +479,6 @@ export class ReservationService {
   }
 
   async updateReservationStatus(id: number, status: string) {
-    // Do not let an admin accidentally confirm an unpaid reservation.
     if (status === "Confirmed") {
       const check = await pool.query(
         `SELECT payment_status

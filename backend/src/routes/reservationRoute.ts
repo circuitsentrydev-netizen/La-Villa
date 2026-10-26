@@ -6,33 +6,41 @@ import {
   getMyReservations,
   updateReservationStatus,
   verifyPayment,
+  cancelMyReservation,
 } from "../controllers/reservationController";
 import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// Customer: create a reservation
+// Customer: create a reservation and initialize Paystack checkout.
 router.post(
   "/",
   authMiddleware.requireAuth,
   createReservation
 );
 
-// Customer: verify a Paystack transaction
+// Customer: verify payment with Paystack.
 router.post(
   "/verify-payment",
   authMiddleware.requireAuth,
   verifyPayment
 );
 
-// Customer: retrieve their own reservations
+// Customer: retrieve their own reservation history.
 router.get(
   "/mine",
   authMiddleware.requireAuth,
   getMyReservations
 );
 
-// Admin: retrieve all reservations
+// Customer: cancel their own Pending, unpaid reservation only.
+router.patch(
+  "/:id/cancel",
+  authMiddleware.requireAuth,
+  cancelMyReservation
+);
+
+// Admin: retrieve all reservations.
 router.get(
   "/",
   authMiddleware.requireAuth,
@@ -40,7 +48,7 @@ router.get(
   getAllReservations
 );
 
-// Admin: update reservation status
+// Admin: update reservation status.
 router.patch(
   "/:id/status",
   authMiddleware.requireAuth,
