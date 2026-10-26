@@ -1,6 +1,7 @@
 
 import "./App.css";
 import { Routes, Route } from "react-router-dom";
+
 import LandingPage from "./pages/landingPage";
 import LoginPage from "./pages/loginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -19,22 +20,23 @@ import PaymentResultPage from "./pages/PaymentResultPage";
 function App() {
   return (
     <Routes>
+      {/* Public pages */}
       <Route path="/" element={<LandingPage />} />
-
       <Route
         path="/accommodations/:accommodationId"
         element={<AccommodationDetails />}
       />
-
       <Route path="/discover" element={<DiscoverStays />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
       {/* Customer account */}
       <Route path="/account" element={<AccountPage />} />
-
-      {/* Saved accommodations */}
       <Route path="/favorites" element={<FavoritesPage />} />
+
+      {/* Customer booking and payment */}
+      <Route path="/reservations" element={<BookingPage />} />
+      <Route path="/payment-result" element={<PaymentResultPage />} />
 
       {/* Admin */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -44,29 +46,21 @@ function App() {
         element={<ReservationsPage />}
       />
 
-      {/* Customer booking */}
-      <Route path="/reservations" element={<BookingPage />} />
-      <Route
-  path="/payment-result"
-  element={<PaymentResultPage />}
-/>
-
       {/* Admin room-type management */}
       <Route
         path="/admin/accommodations/:accommodationId/rooms"
         element={<ManageRoomTypes />}
       />
-
       <Route
         path="/admin/accommodations/new"
         element={<AddAccommodationForm />}
       />
-
       <Route
         path="/admin/accommodations/:accommodationId/edit"
         element={<AddAccommodationForm />}
       />
 
+      {/* Fallback */}
       <Route path="*" element={<div>404 - Page Not Found</div>} />
     </Routes>
   );

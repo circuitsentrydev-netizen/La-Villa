@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
@@ -47,6 +46,17 @@ function parseImages(images?: string[] | string): string[] {
   }
 
   return [];
+}
+
+// Returns the first usable image URL, or '' if none exist.
+function getFirstImage(images?: string[]): string {
+  if (!images) return '';
+
+  const first = images.find(
+    (img) => typeof img === 'string' && img.trim() !== ''
+  );
+
+  return first ? getImageUrl(first) || '' : '';
 }
 
 function formatPrice(value?: number | string): string {
@@ -236,8 +246,22 @@ export function LandingPage() {
         </div>
       </nav>
 
-      {/* Hero section */}
+      {/* Hero section with background video */}
       <header className="hero-section">
+        <video
+          className="hero-video"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+        >
+          <source src="/videos/hero.mp4" type="video/mp4" />
+        </video>
+
+        <div className="hero-overlay" />
+
         <div className="hero-content">
           <h1>Your next chapter starts with a stay.</h1>
           <p>A change of scene is closer than you think.</p>
@@ -292,76 +316,71 @@ export function LandingPage() {
           </div>
         ) : (
           <div className="stay-grid">
-            {featuredStays.map((stay) => (
-              <div
-                key={stay.id}
-                className="stay-card"
-                role="link"
-                tabIndex={0}
-                aria-label={`View details for ${stay.accommodation}`}
-                onClick={() => openAccommodation(stay.id)}
-                onKeyDown={(event) => {
-                  if (
-                    event.key === 'Enter' ||
-                    event.key === ' '
-                  ) {
-                    event.preventDefault();
-                    openAccommodation(stay.id);
-                  }
-                }}
-              >
-                <div className="stay-card-image">
-                  {stay.images && stay.images.length > 0 ? (
-                    <img
-                      src={getImageUrl(stay.images[0])}
-                      alt={stay.accommodation}
-                      loading="lazy"
-                      onError={(event) => {
-                        console.error(
-                          'Failed to load accommodation image:',
-                          event.currentTarget.src
-                        );
-                        event.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <div className="stay-image-placeholder">
-                      No image available
-                    </div>
-                  )}
-                </div>
+            {featuredStays.map((stay) => {
+              const imageSrc = getFirstImage(stay.images);
 
-                <div className="stay-card-content">
-                  <h3>{stay.accommodation}</h3>
-
-                  <p className="stay-location">
-                    {stay.location}
-                  </p>
-
-                  {stay.description && (
-                    <p className="stay-description">
-                      {stay.description.length > 100
-                        ? `${stay.description.slice(0, 100)}...`
-                        : stay.description}
-                    </p>
-                  )}
-
-                  <div className="stay-card-footer">
-                    <span className="stay-rating">
-                      ★ {stay.starRating || 'Unrated'}
-                    </span>
-
-                    <span className="stay-price">
-                      {stay.nightlyRate}
-                    </span>
+              return (
+                <div
+                  key={stay.id}
+                  className="stay-card"
+                  role="link"
+                  tabIndex={0}
+                  aria-label={`View details for ${stay.accommodation}`}
+                  onClick={() => openAccommodation(stay.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      openAccommodation(stay.id);
+                    }
+                  }}
+                >
+                  <div className="stay-card-image">
+                    {imageSrc ? (
+                      <img
+                        src={imageSrc}
+                        alt={stay.accommodation}
+                        loading="lazy"
+                        onError={(event) => {
+                          event.currentTarget.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="stay-image-placeholder">
+                        No image available
+                      </div>
+                    )}
                   </div>
 
-                  <span className="view-details">
-                    View details →
-                  </span>
+                  <div className="stay-card-content">
+                    <h3>{stay.accommodation}</h3>
+
+                    <p className="stay-location">{stay.location}</p>
+
+                    {stay.description && (
+                      <p className="stay-description">
+                        {stay.description.length > 100
+                          ? `${stay.description.slice(0, 100)}...`
+                          : stay.description}
+                      </p>
+                    )}
+
+                    <div className="stay-card-footer">
+                      <span className="stay-rating">
+                        ★ {stay.starRating || 'Unrated'}
+                      </span>
+
+                      <span className="stay-price">
+                        {stay.nightlyRate}
+                      </span>
+                    </div>
+
+                    <span className="view-details">
+                      View details →
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -369,9 +388,7 @@ export function LandingPage() {
       {/* Footer */}
       <footer className="landing-footer">
         <div className="footer-content">
-          <span>
-            © 2026 La Villa Stays. All rights reserved.
-          </span>
+          <span>© 2026 La Villa Stays. All rights reserved.</span>
 
           <div className="footer-links">
             <span>Privacy Policy</span>
