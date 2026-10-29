@@ -72,7 +72,7 @@ const list = (value: unknown): string[] => {
       return parsed.filter(Boolean).map(String);
     }
   } catch {
-    // Support comma-separated values too.
+   
   }
 
   return value.split(",").map((item) => item.trim()).filter(Boolean);
