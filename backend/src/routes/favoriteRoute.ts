@@ -5,22 +5,27 @@ import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// All favorites routes require authentication
+/**
+ * All favorites endpoints require a valid authentication token.
+ */
 router.use(authMiddleware.requireAuth);
 
-// Retrieve the authenticated user's saved accommodations
+/**
+ * GET /api/favorites
+ * Retrieve the signed-in user's saved accommodations.
+ */
 router.get("/", favoriteController.getFavorites);
 
-// Save an accommodation
-router.post(
-  "/:accommodationId",
-  favoriteController.addFavorite
-);
+/**
+ * POST /api/favorites/:accommodationId
+ * Save an accommodation for the signed-in user.
+ */
+router.post("/:accommodationId", favoriteController.addFavorite);
 
-// Remove a saved accommodation
-router.delete(
-  "/:accommodationId",
-  favoriteController.removeFavorite
-);
+/**
+ * DELETE /api/favorites/:accommodationId
+ * Remove an accommodation from the signed-in user's saved list.
+ */
+router.delete("/:accommodationId", favoriteController.removeFavorite);
 
 export default router;
