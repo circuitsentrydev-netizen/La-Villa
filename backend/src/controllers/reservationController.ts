@@ -196,38 +196,49 @@ export const createReservation = async (
         email,
         amountMinor,
         reference,
-        reservationId: reservation.id,
+        reservationId: Number(reservation.id),
         reservationCode: reservation.reservation_code,
       });
     } catch (error) {
-      console.error("Paystack initialization failed:", error);
+      const errorMessage = getErrorMessage(error);
+
+      const isConnectionError = [
+        "PAYSTACK_CONNECTION_FAILED",
+        "PAYSTACK_CONNECTION_TIMEOUT",
+      ].includes(errorMessage);
+
+      console.error("Paystack initialization failed:", {
+        errorCode: errorMessage,
+        reservationId: reservation.id,
+        reference,
+      });
 
       res.status(502).json({
-        message:
-          "Your reservation was created, but Paystack checkout could not be initialized. Please contact support before submitting another reservation.",
+        message: isConnectionError
+          ? "Your reservation was created, but La Villa could not connect to Paystack. Your payment has not been confirmed. Please contact support before submitting another reservation."
+          : "Your reservation was created, but Paystack checkout could not be initialized. Your payment has not been confirmed. Please contact support before submitting another reservation.",
         reservation,
         paymentStatus: "pending",
         reference,
+        errorCode: isConnectionError ? errorMessage : undefined,
       });
       return;
     }
 
-    const authorizationUrl = checkout?.authorizationUrl;
+    const authorizationUrl = checkout.authorizationUrl;
 
     let parsedCheckoutUrl: URL | null = null;
 
-    if (typeof authorizationUrl === "string") {
-      try {
-        parsedCheckoutUrl = new URL(authorizationUrl);
-      } catch {
-        parsedCheckoutUrl = null;
-      }
+    try {
+      parsedCheckoutUrl = new URL(authorizationUrl);
+    } catch {
+      parsedCheckoutUrl = null;
     }
 
     const validCheckoutUrl =
       parsedCheckoutUrl?.protocol === "https:" &&
       (
-        parsedCheckoutUrl.hostname === "paystack.com" ||
+        parsedCheckoutUrl.hostname === "checkout.paystack.com" ||
         parsedCheckoutUrl.hostname.endsWith(".paystack.com")
       );
 
@@ -263,6 +274,8 @@ export const createReservation = async (
       },
     });
   } catch (error) {
+    const message = getErrorMessage(error);
+
     const knownErrors: Record<
       string,
       { status: number; message: string }
@@ -294,7 +307,6 @@ export const createReservation = async (
       },
     };
 
-    const message = getErrorMessage(error);
     const knownError = knownErrors[message];
 
     if (knownError) {
@@ -344,7 +356,11 @@ export const verifyPayment = async (
         ? req.body.reference.trim()
         : "";
 
-    if (!reference || reference.length > 100) {
+    if (
+      !reference ||
+      reference.length > 100 ||
+      !/^[a-zA-Z0-9.=-]+$/.test(reference)
+    ) {
       res.status(400).json({
         error: "A valid payment reference is required.",
         paymentStatus: "error",
@@ -383,6 +399,7 @@ export const verifyPayment = async (
       return;
     }
 
+    // A network or verification error must not mark the payment as failed.
     const verified = await paystackService.verifyTransaction(reference);
 
     if (String(verified.reference ?? "") !== reference) {
@@ -472,6 +489,22 @@ export const verifyPayment = async (
         error:
           "This reservation cannot be confirmed through this payment attempt. Please contact La Villa if you believe you completed payment.",
         paymentStatus: "error",
+      });
+      return;
+    }
+
+    if (
+      message === "PAYSTACK_CONNECTION_TIMEOUT" ||
+      message === "PAYMENT_VERIFICATION_FAILED"
+    ) {
+      console.error("Paystack payment verification is temporarily unavailable:", {
+        errorCode: message,
+      });
+
+      res.status(502).json({
+        error:
+          "We could not reach Paystack to verify your payment. Your reservation has not been confirmed. Please try again shortly.",
+        paymentStatus: "pending",
       });
       return;
     }
