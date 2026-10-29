@@ -30,14 +30,24 @@ interface PaystackVerifyResponse {
 }
 
 export class PaystackService {
-  private getSecretKey(): string {
-    const key = process.env.PAYSTACK_SECRET_KEY;
+  private readonly baseUrl = "https://api.paystack.co";
 
-    if (!key?.trim()) {
+  private getSecretKey(): string {
+    const key = process.env.PAYSTACK_SECRET_KEY?.trim();
+
+    if (!key) {
       throw new Error("PAYSTACK_SECRET_KEY is not configured.");
     }
 
-    return key.trim();
+    return key;
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.getSecretKey()}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    };
   }
 
   async initializeTransaction(input: InitializePaymentInput) {
@@ -61,7 +71,13 @@ export class PaystackService {
       throw new Error("A valid reservation ID is required.");
     }
 
-    if (!input.reference?.trim() || input.reference.length > 100) {
+    const reference = input.reference?.trim();
+
+    if (
+      !reference ||
+      reference.length > 100 ||
+      !/^[a-zA-Z0-9.=-]+$/.test(reference)
+    ) {
       throw new Error("A valid payment reference is required.");
     }
 
@@ -81,30 +97,32 @@ export class PaystackService {
 
     if (
       parsedCallbackUrl.protocol !== "https:" &&
-      parsedCallbackUrl.hostname !== "localhost"
+      !(
+        parsedCallbackUrl.protocol === "http:" &&
+        ["localhost", "127.0.0.1"].includes(
+          parsedCallbackUrl.hostname
+        )
+      )
     ) {
-      throw new Error("PAYSTACK_CALLBACK_URL must use HTTPS.");
+      throw new Error(
+        "PAYSTACK_CALLBACK_URL must use HTTPS, except for local development."
+      );
     }
-
-    const secretKey = this.getSecretKey();
 
     let response: Response;
 
     try {
       response = await fetch(
-        "https://api.paystack.co/transaction/initialize",
+        `${this.baseUrl}/transaction/initialize`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${secretKey}`,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(20000),
           body: JSON.stringify({
             email,
             amount: input.amountMinor,
             currency: "ZAR",
-            reference: input.reference,
+            reference,
             callback_url: callbackUrl,
             metadata: {
               reservation_id: input.reservationId,
@@ -114,12 +132,13 @@ export class PaystackService {
         }
       );
     } catch (error) {
-      console.error(
-        "Could not connect to Paystack to initialize payment:",
-        error
-      );
+      console.error("Paystack connection error:", error);
 
-      throw new Error("PAYMENT_INITIALIZATION_FAILED");
+      throw new Error(
+        error instanceof Error && error.name === "TimeoutError"
+          ? "PAYSTACK_CONNECTION_TIMEOUT"
+          : "PAYSTACK_CONNECTION_FAILED"
+      );
     }
 
     let data: PaystackInitializeResponse;
@@ -127,7 +146,6 @@ export class PaystackService {
     try {
       data = (await response.json()) as PaystackInitializeResponse;
     } catch {
-      console.error("Paystack returned an invalid initialization response.");
       throw new Error("PAYMENT_INITIALIZATION_FAILED");
     }
 
@@ -136,17 +154,19 @@ export class PaystackService {
       !data.status ||
       !data.data?.authorization_url ||
       !data.data?.access_code ||
-      data.data.reference !== input.reference
+      data.data.reference !== reference
     ) {
-      // Log the useful failure details, but never log the secret key.
-      console.error("Paystack initialization failed:", {
+      console.error("Paystack initialization rejected:", {
         httpStatus: response.status,
         message: data.message,
-        referenceMatches: data.data?.reference === input.reference,
-        hasAuthorizationUrl: Boolean(data.data?.authorization_url),
+        reference,
       });
 
-      throw new Error("PAYMENT_INITIALIZATION_FAILED");
+      throw new Error(
+        `PAYSTACK_INITIALIZATION_REJECTED: ${
+          data.message || "Unknown Paystack error"
+        }`
+      );
     }
 
     let checkoutUrl: URL;
@@ -161,15 +181,9 @@ export class PaystackService {
       checkoutUrl.protocol !== "https:" ||
       !(
         checkoutUrl.hostname === "checkout.paystack.com" ||
-        checkoutUrl.hostname === "paystack.com" ||
         checkoutUrl.hostname.endsWith(".paystack.com")
       )
     ) {
-      console.error("Paystack returned an unexpected checkout URL host:", {
-        hostname: checkoutUrl.hostname,
-        reference: input.reference,
-      });
-
       throw new Error("PAYSTACK_INVALID_CHECKOUT_URL");
     }
 
@@ -183,30 +197,35 @@ export class PaystackService {
   async verifyTransaction(reference: string) {
     const normalizedReference = reference?.trim();
 
-    if (!normalizedReference || normalizedReference.length > 100) {
+    if (
+      !normalizedReference ||
+      normalizedReference.length > 100 ||
+      !/^[a-zA-Z0-9.=-]+$/.test(normalizedReference)
+    ) {
       throw new Error("A valid payment reference is required.");
     }
-
-    const secretKey = this.getSecretKey();
 
     let response: Response;
 
     try {
       response = await fetch(
-        `https://api.paystack.co/transaction/verify/${encodeURIComponent(
+        `${this.baseUrl}/transaction/verify/${encodeURIComponent(
           normalizedReference
         )}`,
         {
           method: "GET",
-          headers: {
-            Authorization: `Bearer ${secretKey}`,
-            Accept: "application/json",
-          },
+          headers: this.getHeaders(),
+          signal: AbortSignal.timeout(20000),
         }
       );
     } catch (error) {
-      console.error("Could not connect to Paystack to verify payment:", error);
-      throw new Error("PAYMENT_VERIFICATION_FAILED");
+      console.error("Paystack verification connection error:", error);
+
+      throw new Error(
+        error instanceof Error && error.name === "TimeoutError"
+          ? "PAYSTACK_CONNECTION_TIMEOUT"
+          : "PAYMENT_VERIFICATION_FAILED"
+      );
     }
 
     let data: PaystackVerifyResponse;
@@ -214,14 +233,14 @@ export class PaystackService {
     try {
       data = (await response.json()) as PaystackVerifyResponse;
     } catch {
-      console.error("Paystack returned an invalid verification response.");
       throw new Error("PAYMENT_VERIFICATION_FAILED");
     }
 
     if (!response.ok || !data.status || !data.data) {
-      console.error("Paystack verification failed:", {
+      console.error("Paystack verification rejected:", {
         httpStatus: response.status,
         message: data.message,
+        reference: normalizedReference,
       });
 
       throw new Error("PAYMENT_VERIFICATION_FAILED");
