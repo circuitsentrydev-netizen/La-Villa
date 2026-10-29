@@ -1,12 +1,6 @@
-
 import { useEffect, useState } from "react";
 import type { FormEvent, CSSProperties } from "react";
-import {
-  Link,
-  useLocation,
-  useNavigate,
-  useSearchParams,
-} from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { type RootState } from "../app/store";
 import { API_BASE_URL } from "../config/api";
@@ -57,10 +51,7 @@ interface ReservationResponse {
   };
 }
 
-const getErrorMessage = (
-  data: unknown,
-  fallback: string
-): string => {
+const getErrorMessage = (data: unknown, fallback: string): string => {
   if (data && typeof data === "object") {
     const value = data as Record<string, unknown>;
 
@@ -76,9 +67,7 @@ const getErrorMessage = (
   return fallback;
 };
 
-const getPaystackUrl = (
-  data: ReservationResponse
-): string => {
+const getPaystackUrl = (data: ReservationResponse): string => {
   return (
     data.payment?.authorizationUrl ??
     data.payment?.authorization_url ??
@@ -100,8 +89,7 @@ const isValidPaystackUrl = (value: string): boolean => {
 
     return (
       url.protocol === "https:" &&
-      (url.hostname === "paystack.com" ||
-        url.hostname.endsWith(".paystack.com"))
+      (url.hostname === "paystack.com" || url.hostname.endsWith(".paystack.com"))
     );
   } catch {
     return false;
@@ -111,22 +99,17 @@ const isValidPaystackUrl = (value: string): boolean => {
 export default function BookingPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
 
   const { user, token, isAuthenticated } = useSelector(
     (state: RootState) => state.auth
   );
 
-  const requestedAccommodationId =
-    searchParams.get("accommodationId") ?? "";
+  const requestedAccommodationId = searchParams.get("accommodationId") ?? "";
 
-  const [accommodations, setAccommodations] = useState<
-    Accommodation[]
-  >([]);
+  const [accommodations, setAccommodations] = useState<Accommodation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [accommodationId, setAccommodationId] = useState(
-    requestedAccommodationId
-  );
+  const [accommodationId, setAccommodationId] = useState(requestedAccommodationId);
   const [roomId, setRoomId] = useState("");
   const [guestName, setGuestName] = useState(user?.name ?? "");
   const [guestCount, setGuestCount] = useState(1);
@@ -143,16 +126,12 @@ export default function BookingPage() {
     localStorage.getItem("lavilla_token") ||
     localStorage.getItem("token");
 
-  const authenticated = Boolean(activeToken) && isAuthenticated;
-
   const today = new Date();
   const minDate = `${today.getFullYear()}-${String(
     today.getMonth() + 1
   ).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  const selectedRoom = rooms.find(
-    (room) => String(room.id) === roomId
-  );
+  const selectedRoom = rooms.find((room) => String(room.id) === roomId);
 
   const nights =
     checkIn && checkOut && checkOut > checkIn
@@ -163,9 +142,7 @@ export default function BookingPage() {
         )
       : 0;
 
-  const total = selectedRoom
-    ? selectedRoom.nightly_rate * nights
-    : 0;
+  const total = selectedRoom ? selectedRoom.nightly_rate * nights : 0;
 
   // Redirect unauthenticated visitors to login.
   useEffect(() => {
@@ -208,38 +185,30 @@ export default function BookingPage() {
 
         if (!response.ok) {
           throw new Error(
-            getErrorMessage(
-              data,
-              "Unable to load accommodations."
-            )
+            getErrorMessage(data, "Unable to load accommodations.")
           );
         }
 
         const records = Array.isArray(data)
           ? data
           : Array.isArray(data.accommodations)
-            ? data.accommodations
-            : Array.isArray(data.data)
-              ? data.data
-              : Array.isArray(data.results)
-                ? data.results
-                : [];
+          ? data.accommodations
+          : Array.isArray(data.data)
+          ? data.data
+          : Array.isArray(data.results)
+          ? data.results
+          : [];
 
         const items: Accommodation[] = records
           .filter(
             (item: Record<string, unknown>) =>
-              !item.status ||
-              String(item.status).toLowerCase() === "published"
+              !item.status || String(item.status).toLowerCase() === "published"
           )
           .map((item: Record<string, unknown>) => ({
             id: String(item.id ?? ""),
-            name: String(
-              item.name ?? item.accommodation ?? "Accommodation"
-            ),
+            name: String(item.name ?? item.accommodation ?? "Accommodation"),
             address: String(item.address ?? item.location ?? ""),
-            status: item.status
-              ? String(item.status)
-              : undefined,
+            status: item.status ? String(item.status) : undefined,
           }))
           .filter((item: Accommodation) => Boolean(item.id));
 
@@ -249,9 +218,7 @@ export default function BookingPage() {
 
         if (
           requestedAccommodationId &&
-          items.some(
-            (item) => item.id === requestedAccommodationId
-          )
+          items.some((item) => item.id === requestedAccommodationId)
         ) {
           setAccommodationId(requestedAccommodationId);
         } else if (requestedAccommodationId) {
@@ -265,9 +232,7 @@ export default function BookingPage() {
       } catch (err) {
         if (active) {
           setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load accommodations."
+            err instanceof Error ? err.message : "Unable to load accommodations."
           );
         }
       } finally {
@@ -318,57 +283,27 @@ export default function BookingPage() {
         const records = Array.isArray(data)
           ? data
           : Array.isArray(data.rooms)
-            ? data.rooms
-            : Array.isArray(data.data)
-              ? data.data
-              : [];
+          ? data.rooms
+          : Array.isArray(data.data)
+          ? data.data
+          : [];
 
-        const loadedRooms: Room[] = records
-          .map((room: Record<string, unknown>) => ({
-            id: String(room.id ?? ""),
-            room_type_name: String(
-              room.room_type_name ??
-                room.roomTypeName ??
-                room.name ??
-                "Room"
-            ),
-            total_capacity: Number(
-              room.total_capacity ??
-                room.totalCapacity ??
-                room.guest_capacity ??
-                1
-            ),
-            nightly_rate: Number(
-              room.nightly_rate ??
-                room.nightlyRate ??
-                room.price_per_night ??
-                0
-            ),
-          }))
-          .filter(
-            (room: Room) =>
-              Boolean(room.id) &&
-              Number.isFinite(room.total_capacity) &&
-              room.total_capacity >= 1 &&
-              Number.isFinite(room.nightly_rate) &&
-              room.nightly_rate >= 0
-          );
+        const loadedRooms: Room[] = records.map(
+          (item: Record<string, unknown>) => ({
+            id: item.id ?? "",
+            room_type_name: String(item.room_type_name ?? "Standard Room"),
+            total_capacity: Number(item.total_capacity ?? 1),
+            nightly_rate: Number(item.nightly_rate ?? 0),
+          })
+        );
 
         if (!active) return;
 
         setRooms(loadedRooms);
-
-        if (loadedRooms.length === 0) {
-          setError(
-            "No room types were returned for this accommodation. Check that rooms are configured and that the rooms API returns a rooms array."
-          );
-        }
       } catch (err) {
         if (active) {
           setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to load room types."
+            err instanceof Error ? err.message : "Unable to load room options."
           );
         }
       } finally {
@@ -383,407 +318,272 @@ export default function BookingPage() {
     };
   }, [accommodationId]);
 
-  const submitReservation = async (
-    event: FormEvent<HTMLFormElement>
-  ) => {
-    event.preventDefault();
+  // Handle Form Submission and API Integration
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
     setError("");
     setMessage("");
-
-    const currentToken =
-      token ||
-      localStorage.getItem("lavilla_token") ||
-      localStorage.getItem("token");
-
-    if (!currentToken || !isAuthenticated) {
-      navigate("/login", {
-        state: {
-          from: `${location.pathname}${location.search}`,
-        },
-      });
-      return;
-    }
-
-    if (!accommodationId || !selectedRoom) {
-      setError(
-        "Please select an accommodation and a room type before continuing."
-      );
-      return;
-    }
-
-    if (
-      !guestName.trim() ||
-      guestName.trim().length > 120
-    ) {
-      setError("Enter a guest name of up to 120 characters.");
-      return;
-    }
-
-    if (
-      !Number.isInteger(guestCount) ||
-      guestCount < 1 ||
-      guestCount > selectedRoom.total_capacity
-    ) {
-      setError(
-        `This room accommodates up to ${selectedRoom.total_capacity} guests.`
-      );
-      return;
-    }
-
-    if (
-      !checkIn ||
-      checkIn < minDate ||
-      !checkOut ||
-      checkOut <= checkIn
-    ) {
-      setError("Choose valid check-in and check-out dates.");
-      return;
-    }
-
     setSubmitting(true);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/reservations`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-            Authorization: `Bearer ${currentToken}`,
-          },
-          body: JSON.stringify({
-            guest_name: guestName.trim(),
-            accommodation_id: accommodationId,
-            room_inventory_id: selectedRoom.id,
-            guest_count: guestCount,
-            check_in_date: checkIn,
-            check_out_date: checkOut,
-          }),
-        }
-      );
+      const response = await fetch(`${API_BASE_URL}/reservations`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeToken}`,
+        },
+        body: JSON.stringify({
+          accommodation_id: accommodationId,
+          room_inventory_id: roomId,
+          guest_name: guestName.trim(),
+          guest_count: guestCount,
+          check_in_date: checkIn,
+          check_out_date: checkOut,
+        }),
+      });
 
-      const data = (await response
-        .json()
-        .catch(() => ({}))) as ReservationResponse;
+      const data: ReservationResponse = await response.json().catch(() => ({}));
 
       if (!response.ok) {
         throw new Error(
-          getErrorMessage(
-            data,
-            `Reservation failed with HTTP ${response.status}.`
-          )
+          getErrorMessage(data, "Reservation setup failed.")
         );
       }
 
       const checkoutUrl = getPaystackUrl(data);
 
-      if (!checkoutUrl) {
-        console.error(
-          "Reservation API response did not contain a Paystack URL:",
-          data
-        );
-
-        throw new Error(
-          data.message
-            ? `${data.message} However, no Paystack checkout URL was returned. Check the backend logs and payment initialization response.`
-            : "The reservation was created, but the backend did not return a Paystack checkout URL. Check the backend logs before submitting another reservation."
-        );
+      if (checkoutUrl && isValidPaystackUrl(checkoutUrl)) {
+        window.location.href = checkoutUrl;
+      } else {
+        navigate("/payment-result", {
+          state: { reservation: data.reservation },
+        });
       }
-
-      if (!isValidPaystackUrl(checkoutUrl)) {
-        console.error("Invalid Paystack checkout URL:", checkoutUrl);
-
-        throw new Error(
-          "The server returned an invalid Paystack checkout URL. Payment has not been started."
-        );
-      }
-
-      setMessage("Redirecting to secure Paystack checkout...");
-
-      // Navigate the browser to Paystack's hosted checkout.
-      window.location.href = checkoutUrl;
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to start your payment. Please try again."
+        err instanceof Error ? err.message : "An unexpected payment error occurred."
       );
+    } finally {
       setSubmitting(false);
     }
   };
 
-  if (!authenticated) {
-    return (
-      <main style={{ maxWidth: 760, margin: "40px auto", padding: 24 }}>
-        Redirecting to sign in...
-      </main>
-    );
-  }
-
-  const fieldStyle: CSSProperties = {
+  const formGroupStyle: CSSProperties = {
+    marginBottom: "20px",
+  };
+  const labelStyle: CSSProperties = {
     display: "block",
+    marginBottom: "6px",
+    fontWeight: "500",
+    color: "#333",
+  };
+  const inputStyle: CSSProperties = {
     width: "100%",
-    padding: 12,
-    margin: "8px 0 18px",
-    border: "1px solid #cbd5e1",
-    borderRadius: 6,
+    padding: "10px",
+    border: "1px solid #ccc",
+    borderRadius: "4px",
+    fontSize: "15px",
     boxSizing: "border-box",
   };
 
+  if (loading) {
+    return (
+      <div style={{ padding: "40px", textAlign: "center" }}>
+        Loading properties configurations...
+      </div>
+    );
+  }
+
   return (
-    <main
+    <div
       style={{
-        maxWidth: 760,
+        maxWidth: "550px",
         margin: "40px auto",
-        padding: 24,
+        padding: "25px",
+        border: "1px solid #e2e8f0",
+        borderRadius: "8px",
+        boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)",
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      <Link to="/discover">← Browse accommodations</Link>
+      <h2 style={{ marginTop: 0, marginBottom: "20px", color: "#1B4D3E" }}>
+        Book Your Accommodation
+      </h2>
 
-      <h1>Make a Reservation</h1>
+      {error && (
+        <div
+          style={{
+            padding: "12px",
+            background: "#fef2f2",
+            color: "#991b1b",
+            borderRadius: "6px",
+            marginBottom: "20px",
+            fontSize: "14px",
+            border: "1px solid #fca5a5",
+          }}
+        >
+          {error}
+        </div>
+      )}
 
-      <p>
-        Select your preferred accommodation and complete your
-        booking details.
-      </p>
+      {message && (
+        <div
+          style={{
+            padding: "12px",
+            background: "#f0fdf4",
+            color: "#166534",
+            borderRadius: "6px",
+            marginBottom: "20px",
+            fontSize: "14px",
+          }}
+        >
+          {message}
+        </div>
+      )}
 
-      {loading ? (
-        <p>Loading accommodations...</p>
-      ) : (
-        <form onSubmit={submitReservation}>
-          <label>
-            Accommodation
-            <select
-              required
-              value={accommodationId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-
-                setAccommodationId(nextId);
-                setSearchParams(
-                  nextId ? { accommodationId: nextId } : {}
-                );
-                setError("");
-                setMessage("");
-              }}
-              style={fieldStyle}
-            >
-              <option value="">Select an accommodation</option>
-
-              {accommodations.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                  {item.address ? ` — ${item.address}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {accommodationId && (
-            <p>
-              <Link
-                to={`/accommodations/${encodeURIComponent(
-                  accommodationId
-                )}`}
-              >
-                View accommodation details
-              </Link>
-            </p>
-          )}
-
-          <label>
-            Room type
-            <select
-              required
-              value={roomId}
-              onChange={(event) => {
-                setRoomId(event.target.value);
-                setGuestCount(1);
-                setError("");
-                setMessage("");
-              }}
-              disabled={
-                !accommodationId ||
-                roomsLoading ||
-                rooms.length === 0 ||
-                submitting
-              }
-              style={fieldStyle}
-            >
-              <option value="">
-                {roomsLoading
-                  ? "Loading room types..."
-                  : rooms.length === 0
-                    ? "No room types available"
-                    : "Select a room type"}
+      <form onSubmit={handleSubmit}>
+        <div style={formGroupStyle}>
+          <label style={labelStyle}>Select Property</label>
+          <select
+            style={inputStyle}
+            value={accommodationId}
+            onChange={(e) => setAccommodationId(e.target.value)}
+          >
+            <option value="">-- Select Property --</option>
+            {accommodations.map((acc) => (
+              <option key={acc.id} value={acc.id}>
+                {acc.name} ({acc.address})
               </option>
+            ))}
+          </select>
+        </div>
 
-              {rooms.map((room) => (
-                <option key={room.id} value={String(room.id)}>
-                  {room.room_type_name} — R
-                  {room.nightly_rate.toFixed(2)} per night
-                </option>
-              ))}
-            </select>
-          </label>
+        <div style={formGroupStyle}>
+          <label style={labelStyle}>Room Configuration</label>
+          <select
+            style={inputStyle}
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+            disabled={roomsLoading || !accommodationId}
+          >
+            <option value="">
+              {roomsLoading ? "Fetching variations..." : "-- Select Room Option --"}
+            </option>
+            {rooms.map((room) => (
+              <option key={room.id} value={room.id}>
+                {room.room_type_name} (Max: {room.total_capacity} guests) — {room.nightly_rate}/night
+              </option>
+            ))}
+          </select>
+        </div>
 
-          {accommodationId &&
-            !roomsLoading &&
-            rooms.length === 0 && (
-              <p style={{ color: "#92400e" }}>
-                No room types are available. Please check the
-                accommodation's room configuration.
-              </p>
-            )}
+        <div style={formGroupStyle}>
+          <label style={labelStyle}>Primary Guest Name</label>
+          <input
+            type="text"
+            style={inputStyle}
+            value={guestName}
+            onChange={(e) => setGuestName(e.target.value)}
+            placeholder="Enter full legal name"
+          />
+        </div>
 
-          <label>
-            Guest name
+        <div style={formGroupStyle}>
+          <label style={labelStyle}>Number of Guests</label>
+          <input
+            type="number"
+            min={1}
+            max={selectedRoom ? selectedRoom.total_capacity : 10}
+            style={inputStyle}
+            value={guestCount}
+            onChange={(e) => setGuestCount(Number(e.target.value))}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: "15px", marginBottom: "20px" }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Check-In</label>
             <input
-              required
-              maxLength={120}
-              value={guestName}
-              onChange={(event) => setGuestName(event.target.value)}
-              style={fieldStyle}
-            />
-          </label>
-
-          <label>
-            Number of guests
-            <input
-              required
-              type="number"
-              min={1}
-              max={selectedRoom?.total_capacity ?? 1}
-              value={guestCount}
-              disabled={!selectedRoom || submitting}
-              onChange={(event) =>
-                setGuestCount(Number(event.target.value))
-              }
-              style={fieldStyle}
-            />
-          </label>
-
-          {selectedRoom && (
-            <p>
-              Maximum capacity: {selectedRoom.total_capacity} guests.
-            </p>
-          )}
-
-          <label>
-            Check-in
-            <input
-              required
               type="date"
               min={minDate}
+              style={inputStyle}
               value={checkIn}
-              disabled={submitting}
-              onChange={(event) => {
-                const nextDate = event.target.value;
-                setCheckIn(nextDate);
-
-                if (checkOut && nextDate && checkOut <= nextDate) {
-                  setCheckOut("");
-                }
-
-                setError("");
-                setMessage("");
-              }}
-              style={fieldStyle}
+              onChange={(e) => setCheckIn(e.target.value)}
             />
-          </label>
-
-          <label>
-            Check-out
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Check-Out</label>
             <input
-              required
               type="date"
               min={checkIn || minDate}
+              style={inputStyle}
               value={checkOut}
-              disabled={submitting}
-              onChange={(event) => {
-                setCheckOut(event.target.value);
-                setError("");
-                setMessage("");
-              }}
-              style={fieldStyle}
+              onChange={(e) => setCheckOut(e.target.value)}
             />
-          </label>
+          </div>
+        </div>
 
-          {nights > 0 && selectedRoom && (
-            <section
-              style={{
-                margin: "20px 0",
-                padding: 18,
-                background: "#FAF9F6",
-                border: "1px solid #e5e7eb",
-                borderRadius: 8,
-              }}
-            >
-              <p>Number of nights: {nights}</p>
-              <p>
-                Nightly rate: R{selectedRoom.nightly_rate.toFixed(2)}
-              </p>
-              <h3>Estimated total: R{total.toFixed(2)}</h3>
-              <p>
-                The server calculates the final amount. Your
-                reservation will only be confirmed after payment
-                has been verified.
-              </p>
-            </section>
-          )}
-
-          {error && (
-            <p
-              role="alert"
-              style={{
-                color: "#b91c1c",
-                marginBottom: 16,
-                lineHeight: 1.6,
-              }}
-            >
-              {error}
-            </p>
-          )}
-
-          {message && (
-            <p
-              role="status"
-              style={{ color: "#166534", marginBottom: 16 }}
-            >
-              {message}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={
-              submitting ||
-              loading ||
-              roomsLoading ||
-              !selectedRoom ||
-              !guestName.trim() ||
-              !checkIn ||
-              !checkOut ||
-              checkOut <= checkIn
-            }
+        {nights > 0 && total > 0 && (
+          <div
             style={{
-              padding: "12px 22px",
-              border: 0,
-              borderRadius: 6,
-              background: submitting ? "#6b8b80" : "#1B4D3E",
-              color: "#fff",
-              cursor: submitting ? "wait" : "pointer",
-              fontWeight: 600,
+              padding: "15px",
+              background: "#f8fafc",
+              borderRadius: "6px",
+              border: "1px solid #e2e8f0",
+              marginBottom: "25px",
+              fontSize: "15px",
             }}
           >
-            {submitting
-              ? "Preparing secure payment..."
-              : "Reserve & Pay Now"}
-          </button>
-        </form>
-      )}
-    </main>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "5px" }}>
+              <span style={{ color: "#64748b" }}>Duration:</span>
+              <strong style={{ marginLeft: "auto" }}>{nights} Nights</strong>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: "17px",
+                paddingTop: "5px",
+                marginTop: "5px",
+                borderTop: "1px dashed #cbd5e1",
+              }}
+            >
+              <span style={{ color: "#1b4d3e", fontWeight: "600" }}>Total Due:</span>
+              <strong style={{ marginLeft: "auto", color: "#1B4D3E" }}>
+                {total.toLocaleString()}
+              </strong>
+            </div>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={
+            submitting ||
+            roomsLoading ||
+            !selectedRoom ||
+            !guestName.trim() ||
+            !checkIn ||
+            !checkOut ||
+            checkOut <= checkIn
+          }
+          style={{
+            width: "100%",
+            padding: "14px 22px",
+            border: 0,
+            borderRadius: 6,
+            background: submitting ? "#6b8b80" : "#1B4D3E",
+            color: "#fff",
+            cursor: submitting ? "wait" : "pointer",
+            fontWeight: 600,
+            fontSize: "16px",
+            transition: "background 0.2s ease",
+          }}
+        >
+          {submitting ? "Preparing secure payment..." : "Reserve & Pay Now"}
+        </button>
+      </form>
+    </div>
   );
 }
