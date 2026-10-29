@@ -1,4 +1,4 @@
-
+// backend/src/services/favoriteService.ts
 import { pool } from "../config/database";
 import type { FavoriteAccommodation } from "../types/favoriteType";
 
@@ -7,6 +7,7 @@ export class FavoriteService {
     const result = await pool.query(
       `SELECT
          f.accommodation_id AS id,
+         f.accommodation_id,
          a.name,
          a.address,
          a.description,
@@ -18,7 +19,10 @@ export class FavoriteService {
        INNER JOIN accommodations a
          ON a.id = f.accommodation_id
        WHERE f.user_id = $1
-         AND LOWER(a.status) = 'published'
+         AND (
+           a.status IS NULL 
+           OR LOWER(a.status) IN ('published', 'available', 'active')
+         )
        ORDER BY f.created_at DESC NULLS LAST`,
       [userId]
     );
@@ -39,7 +43,10 @@ export class FavoriteService {
         `SELECT id
          FROM accommodations
          WHERE id = $1
-           AND LOWER(status) = 'published'
+           AND (
+             status IS NULL 
+             OR LOWER(status) IN ('published', 'available', 'active')
+           )
          FOR SHARE`,
         [accommodationId]
       );
@@ -59,13 +66,12 @@ export class FavoriteService {
 
       await client.query("COMMIT");
 
-      // False means it was already saved; no duplicate was created.
       return (result.rowCount ?? 0) > 0;
     } catch (error) {
       try {
         await client.query("ROLLBACK");
       } catch {
-        // Preserve the original database error.
+        // Preserve original error
       }
       throw error;
     } finally {
@@ -88,4 +94,3 @@ export class FavoriteService {
     return (result.rowCount ?? 0) > 0;
   }
 }
-
