@@ -1,26 +1,30 @@
-import { Pool } from "pg";
-import dotenv from "dotenv";
+// Replace "pg" with "@neondatabase/serverless"
+import { Pool } from "@neondatabase/serverless"; 
+import dns from "dns";
+import net from "net";
+import "dotenv/config";
 
-dotenv.config();
+dns.setDefaultResultOrder("ipv4first");
+net.setDefaultAutoSelectFamilyAttemptTimeout(5000);
 
-// 1. ADD THE 'export' KEYWORD RIGHT HERE!
 export const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_DATABASE,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || "5432")
+  connectionString: process.env.DATABASE_URL,
+});
+
+pool.on("error", (err: any) => {
+  console.warn("Unexpected idle PostgreSQL client error:", err.message);
 });
 
 export const query = (text: string, params?: any[]) => pool.query(text, params);
 
-export const textDbConnection = async () => {
-    try {
-        const client = await pool.connect();
-        console.log("Database connection successful");
-        client.release();
-    } catch (error) {
-        console.log("Unable to connect to the database");
-        process.exit(1);
-    }
+export const testDbConnection = async () => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT current_database() AS db, NOW() AS now",
+    );
+    console.log(`Database connection successful: ${rows[0].db}`);
+  } catch (error) {
+    console.error("Database connection failed:", error);
+    process.exit(1);
+  }
 };

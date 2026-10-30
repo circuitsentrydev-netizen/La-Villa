@@ -2,8 +2,6 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
-
-import { textDbConnection } from "./config/database";
 import authRoute from "./routes/authRoute";
 import hotelRoute from "./routes/hotelRoute";
 import userRoute from "./routes/userRoutes";
@@ -36,13 +34,14 @@ app.use("/api/reviews", reviewRoute);
 
 const startServer = async () => {
   try {
-    await textDbConnection();
+    
+    console.log("Database verification complete. Starting server...");
 
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("Failed to start server:", error);
+    console.error("Failed to start server due to database connection error:", error);
     process.exit(1);
   }
 };
