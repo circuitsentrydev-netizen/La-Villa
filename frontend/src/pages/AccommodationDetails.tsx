@@ -54,8 +54,6 @@ interface SingleReviewResponse {
   error?: string;
 }
 
-const BRAND = "#1B4D3E";
-
 const list = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value.filter(Boolean).map(String);
