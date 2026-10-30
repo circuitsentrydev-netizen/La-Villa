@@ -1,6 +1,5 @@
 import { Pool } from "pg";
 import dotenv from "dotenv";
-
 dotenv.config();
 
 // 1. ADD THE 'export' KEYWORD RIGHT HERE!

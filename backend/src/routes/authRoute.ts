@@ -1,21 +1,33 @@
-import { Router } from 'express';
-import { authController } from '../controllers/authController'; 
-import { authMiddleware } from '../middleware/authMiddleware';
-import { userController } from '../controllers/userController';
+
+import { Router } from "express";
+import { authController } from "../controllers/authController";
+import { authMiddleware } from "../middleware/authMiddleware";
+import {
+  getMyProfile,
+  updateMyProfile,
+} from "../controllers/userController";
 
 const router = Router();
 
-// 1. PUBLIC AUTHENTICATION PIPELINES (Unified to go through authController)
+// Public authentication routes
+router.post("/register", authController.handleRegister);
+router.post("/login", authController.handleLogin);
 
-router.post('/register', authController.handleRegister);
-router.post('/login', authController.handleLogin);
-router.post('/oauth-login', authController.handleOAuthLogin);
+// OAuth route retained for compatibility
+router.post("/oauth-login", authController.handleOAuthLogin);
 
+// Authenticated customer profile routes
+// These must be declared before any /profile/:id routes.
+router.get(
+  "/profile/me",
+  authMiddleware.requireAuth,
+  getMyProfile
+);
 
-// 2. PROTECTED PROFILE MANAGEMENT OPERATIONS
-
-router.get('/profile/:id', authMiddleware.requireAuth, userController.getUserProfile);
-router.put('/profile/:id', authMiddleware.requireAuth, userController.updateUserProfile);
-router.delete('/profile/:id', authMiddleware.requireAuth, userController.deleteUserProfile);
+router.put(
+  "/profile/me",
+  authMiddleware.requireAuth,
+  updateMyProfile
+);
 
 export default router;

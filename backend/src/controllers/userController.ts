@@ -1,177 +1,183 @@
-import { Request, Response } from 'express';
-import { query } from '../config/database';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import { UserRole } from '../types/userType';
 
-const SECRET = process.env.JWT_SECRET || 'this-key-is-secret';
+import { Request, Response } from "express";
+import { pool } from "../config/database";
 
-export const userController = {
-  // ⚡ 1. THIRD-PARTY OAUTH SYSTEM FLOW
-  handleOAuthLogin: async (req: Request, res: Response) => {
-    try {
-      const { email, name, avatar } = req.body;
-      if (!email) {
-        return res.status(400).json({ error: 'Email parameter is required for authentication.' });
-      }
+const isValidUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
 
-      const sanitizedEmail = email.toLowerCase().trim();
-      const userCheck = await query('SELECT * FROM users WHERE email = \$1', [sanitizedEmail]);
-      let user;
+const getAuthenticatedUserId = (req: Request): string | null => {
+  const id = req.user?.id;
+  return id && isValidUuid(id) ? id : null;
+};
 
-      if (userCheck.rows && userCheck.rows.length > 0) {
-        user = userCheck.rows[0];
-      } else {
-        // All new users default to USER. Update to ADMIN directly via pgAdmin if needed.
-        const assignedRole: UserRole = 'USER';
-        const newUser = await query(
-          `INSERT INTO users (name, email, password_hash, role, display_picture) 
-           VALUES ($1, $2, $3, $4, $5) 
-           RETURNING id, name, email, role, display_picture`,
-          [name || 'Villa Guest', sanitizedEmail, 'OAUTH_EXTERNAL_ACCOUNT', assignedRole, avatar || null]
-        );
-        user = newUser.rows[0];
-      }
+const selectProfile = async (id: string) => {
+  const result = await pool.query(
+    `SELECT id, name, email, avatar, role, created_at
+     FROM users
+     WHERE id = $1
+     LIMIT 1`,
+    [id]
+  );
 
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, SECRET, { expiresIn: '1d' });
-      
-      return res.status(200).json({
-        message: 'Authentication successful',
-        token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.display_picture }
-      });
-    } catch (error: any) {
-      console.error("OAuth error:", error);
-      return res.status(500).json({ error: 'Internal validation or server error during OAuth processing.' });
+  return result.rows[0] ?? null;
+};
+
+/**
+ * GET /api/profile/me
+ */
+export const getMyProfile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Please sign in to view your profile." });
+      return;
     }
-  },
 
-  // 2. TRADITIONAL ACCOUNT REGISTRATION FORM FLOW
-  handleRegister: async (req: Request, res: Response) => {
-    try {
-      const { name, email, password } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required" });
-      }
+    const user = await selectProfile(userId);
 
-      const sanitizedEmail = email.toLowerCase().trim();
-      const existingUser = await query("SELECT id FROM users WHERE email = \$1", [sanitizedEmail]);
-      
-      if (existingUser.rows && existingUser.rows.length > 0) {
-        return res.status(400).json({ error: "User with this email already exists" });
-      }
-
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(password, salt);
-      
-      // All new registrations default to USER.
-      const assignedRole: UserRole = 'USER';
-      
-      const { rows } = await query(
-        "INSERT INTO users (email, password_hash, name, role) VALUES (\$1, \$2, \$3, \$4) RETURNING id, email, name, role",
-        [sanitizedEmail, hashedPassword, name || null, assignedRole]
-      );
-      
-      const user = rows[0];
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, SECRET, { expiresIn: '1d' });
-      
-      return res.status(201).json({
-        message: "User registered successfully",
-        token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role }
-      });
-    } catch (error) {
-      console.error("Registration error:", error);
-      return res.status(500).json({ error: "Error registering new user" });
+    if (!user) {
+      res.status(404).json({ message: "User profile not found." });
+      return;
     }
-  },
 
-  // 3. TRADITIONAL EMAIL & PASSWORD VERIFICATION LOGIN FLOW
-  handleLogin: async (req: Request, res: Response) => {
-    try {
-      const { email, password } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: 'Email and password are required fields.' });
-      }
-
-      const sanitizedEmail = email.toLowerCase().trim();
-      const result = await query('SELECT * FROM users WHERE email = \$1', [sanitizedEmail]);
-
-      if (!result.rows || result.rows.length === 0) {
-        return res.status(401).json({ error: 'Invalid email or password combination.' });
-      }
-
-      const user = result.rows[0];
-
-      if (user.password_hash === 'OAUTH_EXTERNAL_ACCOUNT') {
-        return res.status(400).json({ error: 'This account is registered via Google OAuth. Please use Google Sign In.' });
-      }
-
-      const match = await bcrypt.compare(password, user.password_hash);
-      if (!match) {
-        return res.status(401).json({ error: 'Invalid email or password combination.' });
-      }
-
-      // The role is grabbed straight from the database. If it's updated to ADMIN in pgAdmin, the token reflects it instantly.
-      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, SECRET, { expiresIn: '1d' });
-      
-      return res.status(200).json({
-        message: 'Login successful',
-        token,
-        user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.display_picture }
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      return res.status(500).json({ error: "Internal authentication error." });
-    }
-  },
-
-  // 4. GET USER PROFILE BY ID
-  getUserProfile: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { rows } = await query("SELECT id, email, name, display_picture, role FROM users WHERE id = \$1", [id]);
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      return res.status(200).json(rows[0]);
-    } catch (error) {
-      return res.status(500).json({ message: "Error fetching profile" });
-    }
-  },
-
-  // 5. UPDATE USER PROFILE
-  updateUserProfile: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { email, name, display_picture } = req.body;
-      if (!email) {
-        return res.status(400).json({ message: "Email is required to update profile" });
-      }
-      const { rows } = await query(
-        "UPDATE users SET email = \$1, name = \$2, display_picture = \$3 WHERE id = \$4 RETURNING id, email, name, display_picture, role",
-        [email, name || null, display_picture || null, id]
-      );
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      return res.status(200).json({ message: "Profile updated successfully", user: rows[0] });
-    } catch (error) {
-      return res.status(500).json({ message: "Error updating profile" });
-    }
-  },
-
-  // 6. DELETE USER PROFILE
-  deleteUserProfile: async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const { rows } = await query("DELETE FROM users WHERE id = \$1 RETURNING id", [id]);
-      if (!rows || rows.length === 0) {
-        return res.status(404).json({ message: "User not found" });
-      }
-      return res.status(200).json({ message: "User profile deleted successfully" });
-    } catch (error) {
-      return res.status(500).json({ message: "Error deleting profile" });
-    }
+    res.status(200).json({ user });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({ message: "Failed to fetch your profile." });
   }
+};
+
+/**
+ * PUT /api/profile/me
+ * Users may update their name and avatar, but not their role or email.
+ */
+export const updateMyProfile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUserId(req);
+
+    if (!userId) {
+      res.status(401).json({ message: "Please sign in to edit your profile." });
+      return;
+    }
+
+    const { name, avatar } = req.body ?? {};
+
+    if (typeof name !== "string" || !name.trim() || name.trim().length > 100) {
+      res.status(400).json({
+        message: "Name is required and must be 100 characters or fewer.",
+      });
+      return;
+    }
+
+    if (
+      avatar !== undefined &&
+      avatar !== null &&
+      (typeof avatar !== "string" || avatar.length > 2000)
+    ) {
+      res.status(400).json({
+        message: "The profile picture URL must be 2,000 characters or fewer.",
+      });
+      return;
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET name = $1,
+           avatar = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, name, email, avatar, role, created_at`,
+      [name.trim(), avatar?.trim() || null, userId]
+    );
+
+    if (!result.rowCount) {
+      res.status(404).json({ message: "User profile not found." });
+      return;
+    }
+
+    res.status(200).json({
+      message: "Profile updated successfully.",
+      user: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Failed to update your profile." });
+  }
+};
+
+/**
+ * Backwards-compatible endpoints for /profile/:id.
+ * A user can only access their own profile through these endpoints.
+ */
+export const getUserProfile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const authenticatedUserId = getAuthenticatedUserId(req);
+
+  if (!authenticatedUserId) {
+    res.status(401).json({ message: "Please sign in to view your profile." });
+    return;
+  }
+
+  if (req.params.id !== authenticatedUserId) {
+    res.status(403).json({ message: "You cannot access another user's profile." });
+    return;
+  }
+
+  try {
+    const user = await selectProfile(authenticatedUserId);
+
+    if (!user) {
+      res.status(404).json({ message: "User profile not found." });
+      return;
+    }
+
+    res.status(200).json({ user });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({ message: "Failed to fetch user profile." });
+  }
+};
+
+export const updateUserProfile = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  const authenticatedUserId = getAuthenticatedUserId(req);
+
+  if (!authenticatedUserId) {
+    res.status(401).json({ message: "Please sign in to edit your profile." });
+    return;
+  }
+
+  if (req.params.id !== authenticatedUserId) {
+    res.status(403).json({ message: "You cannot edit another user's profile." });
+    return;
+  }
+
+  await updateMyProfile(req, res);
+};
+
+/**
+ * Account deletion is intentionally not implemented here.
+ * Removing a user can affect reservations and other related records.
+ */
+export const deleteUserProfile = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  res.status(501).json({
+    message:
+      "Account deletion is not available through this endpoint. Please contact support.",
+  });
 };

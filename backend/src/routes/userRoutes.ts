@@ -1,24 +1,40 @@
-import { Router } from 'express';
 
-import { authController } from '../controllers/authController'; 
-import { authMiddleware } from '../middleware/authMiddleware';
-import { userController } from '../controllers/userController';
+import { Router } from "express";
+import {
+  getMyProfile,
+  updateMyProfile,
+  getUserProfile,
+  updateUserProfile,
+} from "../controllers/userController";
+import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
 
-// Core Sign Up & Login Endpoints
-// 2. UPDATE THESE THREE LINES: Change userController to authController
+// Authenticated user's own profile
+router.get(
+  "/profile/me",
+  authMiddleware.requireAuth,
+  getMyProfile
+);
 
-router.post('/register', authController.handleRegister);
-router.post('/login', authController.handleLogin);
-router.post('/oauth-login', authController.handleOAuthLogin);
+router.put(
+  "/profile/me",
+  authMiddleware.requireAuth,
+  updateMyProfile
+);
 
-// Protected User Management Operations Endpoints
-// Note: If getUserProfile, are in a separate userController file, 
-// you should keep a separate import for that below.
+// Profile routes for a specific user.
+// The controller must enforce that users can only update their own profile.
+router.get(
+  "/profile/:id",
+  authMiddleware.requireAuth,
+  getUserProfile
+);
 
-router.get('/profile/:id', authMiddleware.requireAuth, userController.getUserProfile);
-router.put('/profile/:id', authMiddleware.requireAuth, userController.updateUserProfile);
-router.delete('/profile/:id', authMiddleware.requireAuth, userController.deleteUserProfile);
+router.put(
+  "/profile/:id",
+  authMiddleware.requireAuth,
+  updateUserProfile
+);
 
 export default router;
