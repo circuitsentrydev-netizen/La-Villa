@@ -1,0 +1,5 @@
+[build]
+  # Bundles the Express backend (served by netlify/functions/api.mts) and
+  # publishes the images already committed in backend/uploads.
+  command = "npm --prefix ../backend ci && npm --prefix ../backend run build:netlify && npm run build && mkdir -p dist/uploads && cp -r ../backend/uploads/. dist/uploads/"
+  publish = "dist"
