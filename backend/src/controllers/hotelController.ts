@@ -1,285 +1,361 @@
 
 import { Request, Response } from "express";
-import {HotelService } from "../services/hotelService";
+import {HotelService,CreateAccommodationDTO,CreateRoomInventoryDTO,} from "../services/hotelService";
 
 const hotelService = new HotelService();
 
-function parseArray(value: unknown): string[] {
+const idFrom = (req: Request): string =>
+  String(req.params.accommodationId ?? "");
+
+const isDuplicateAccommodationName = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false;
+
+  const dbError = error as {
+    code?: string;
+    constraint?: string;
+  };
+
+  return (
+    dbError.code === "23505" &&
+    dbError.constraint === "accommodations_name_key"
+  );
+};
+
+const parseArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value
-      .map(String)
+      .filter((item) => item != null)
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value !== "string" || !value.trim()) return [];
+
+  const input = value.trim();
+
+  if (input.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item) => item != null)
+          .map((item) => String(item).trim())
+          .filter(Boolean);
+      }
+    } catch {
+      // Continue to other formats.
+    }
+  }
+
+  if (input.startsWith("{") && input.endsWith("}")) {
+    const inner = input.slice(1, -1).trim();
+    if (!inner) return [];
+
+    const values =
+      inner.match(/"(?:[^"\\]|\\.)*"|[^,]+/g) ?? [];
+
+    return values
+      .map((item) => {
+        const trimmed = item.trim();
+
+        if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+          try {
+            return JSON.parse(trimmed) as string;
+          } catch {
+            return trimmed.slice(1, -1);
+          }
+        }
+
+        return trimmed;
+      })
       .map((item) => item.trim())
       .filter(Boolean);
   }
 
-  if (typeof value !== "string" || !value.trim()) {
-    return [];
-  }
+  return input.split(",").map((item) => item.trim()).filter(Boolean);
+};
+
+const imagePaths = (req: Request): string[] =>
+  ((req.files as Express.Multer.File[] | undefined) ?? []).map(
+    (file) => `/uploads/${file.filename}`
+  );
+
+const existingImages = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== "string" || !value.trim()) return [];
 
   try {
     const parsed: unknown = JSON.parse(value);
-
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map(String)
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
+    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
   } catch {
-    // Fall back to comma-separated values.
+    // A plain string may be one image path.
   }
 
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function optionalNumber(value: unknown): number | null {
-  if (value === undefined || value === null || value === "") {
-    return null;
-  }
-
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function getAccommodationId(req: Request): string | null {
-  const value = req.params.accommodationId;
-
-  if (typeof value === "string" && value.trim()) {
-    return value.trim();
-  }
-
-  if (Array.isArray(value) && value[0]?.trim()) {
-    return value[0].trim();
-  }
-
-  return null;
-}
-
-// GET /api/accommodations/:accommodationId
-export const getAccommodationById = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const accommodationId = getAccommodationId(req);
-
-    if (!accommodationId) {
-      res.status(400).json({
-        error: "Accommodation ID is required.",
-      });
-      return;
-    }
-
-    const accommodation =
-      await hotelService.getAccommodationById(accommodationId);
-
-    if (!accommodation) {
-      res.status(404).json({
-        error: "Accommodation not found.",
-      });
-      return;
-    }
-
-    res.status(200).json(accommodation);
-  } catch (error) {
-    console.error("Error fetching accommodation:", error);
-
-    res.status(500).json({
-      error: "Failed to fetch accommodation details.",
-    });
-  }
+  return [value];
 };
 
-// GET /api/accommodations
-export const getAllAccommodations = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const search =
-      typeof req.query.search === "string"
-        ? req.query.search
-        : undefined;
+function buildDTO(
+  body: Record<string, unknown>,
+  images: string[],
+  previousImages: string[] = []
+): CreateAccommodationDTO {
+  const name = String(body.name ?? "").trim();
+  const address = String(body.address ?? "").trim();
+  const pricePerNight = Number(body.pricePerNight);
+  const starRating = Number(body.starRating);
+  const status = String(body.status ?? "Draft");
 
-    const status =
-      typeof req.query.status === "string"
-        ? req.query.status
-        : undefined;
-
-    const accommodations =
-      await hotelService.getFilteredAccommodations(search, status);
-
-    res.status(200).json(accommodations);
-  } catch (error) {
-    console.error("Error fetching accommodations:", error);
-
-    res.status(500).json({
-      error: "Failed to fetch accommodations.",
-    });
+  if (!name || !address) {
+    throw new Error("Accommodation name and address are required.");
   }
+
+  if (!Number.isFinite(pricePerNight) || pricePerNight <= 0) {
+    throw new Error("Price per night must be greater than zero.");
+  }
+
+  if (!Number.isFinite(starRating) || starRating < 1 || starRating > 5) {
+    throw new Error("Star rating must be between 1 and 5.");
+  }
+
+  if (status !== "Draft" && status !== "Published") {
+    throw new Error("Status must be Draft or Published.");
+  }
+
+  const numberOrNull = (value: unknown): number | null => {
+    if (value === "" || value == null) return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  };
+
+  return {
+    name,
+    address,
+    pricePerNight,
+    description: String(body.description ?? "").trim(),
+    starRating,
+    status,
+    facilities: parseArray(body.facilities),
+    policies: parseArray(body.policies),
+    latitude: numberOrNull(body.latitude),
+    longitude: numberOrNull(body.longitude),
+    images: images.length > 0 ? images : previousImages,
+  };
+}
+
+const handleError = (
+  res: Response,
+  error: unknown,
+  fallback: string,
+  status = 500
+): void => {
+  console.error(fallback, error);
+  res.status(status).json({
+    message: error instanceof Error ? error.message : fallback,
+  });
 };
 
-// POST /api/accommodations
-export const createAccommodation = async (
+export async function getAllAccommodations(
   req: Request,
   res: Response
-): Promise<void> => {
+): Promise<void> {
   try {
-    const {
-      name,
-      address,
-      pricePerNight,
-      description,
-      starRating,
-      status,
-      facilities,
-      policies,
-      lat,
-      lng,
-      latitude,
-      longitude,
-    } = req.body;
-
-    const price = optionalNumber(pricePerNight);
-
-    if (
-      typeof name !== "string" ||
-      !name.trim() ||
-      typeof address !== "string" ||
-      !address.trim() ||
-      price === null ||
-      price <= 0
-    ) {
-      res.status(400).json({
-        error:
-          "Name, address, and a valid positive price per night are required.",
-      });
-      return;
-    }
-
-    const rating = optionalNumber(starRating) ?? 5;
-
-    if (rating < 1 || rating > 5) {
-      res.status(400).json({
-        error: "Star rating must be between 1 and 5.",
-      });
-      return;
-    }
-
-    const uploadedFiles = Array.isArray(req.files)
-      ? (req.files as Express.Multer.File[])
-      : [];
-
-    const images = uploadedFiles.map(
-      (file) => `/uploads/${file.filename}`
+    const accommodations = await hotelService.getFilteredAccommodations(
+      typeof req.query.search === "string" ? req.query.search : undefined,
+      typeof req.query.status === "string" ? req.query.status : undefined
     );
 
-    const accommodation = await hotelService.insertAccommodation({
-      name: name.trim(),
-      address: address.trim(),
-      pricePerNight: price,
-      description:
-        typeof description === "string"
-          ? description.trim()
-          : "",
-      starRating: rating,
-      status: status === "Draft" ? "Draft" : "Published",
-      facilities: parseArray(facilities),
-      policies: parseArray(policies),
-      latitude: optionalNumber(latitude ?? lat),
-      longitude: optionalNumber(longitude ?? lng),
-      images,
-    });
+    res.status(200).json({ accommodations });
+  } catch (error) {
+    handleError(res, error, "Failed to load accommodations.");
+  }
+}
+
+export async function getAccommodationById(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const accommodation = await hotelService.getAccommodationById(idFrom(req));
+
+    if (!accommodation) {
+      res.status(404).json({ message: "Accommodation not found." });
+      return;
+    }
+
+    res.status(200).json({ accommodation });
+  } catch (error) {
+    handleError(res, error, "Failed to load accommodation.");
+  }
+}
+
+export async function createAccommodation(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const dto = buildDTO(req.body, imagePaths(req));
+    const accommodation = await hotelService.insertAccommodation(dto);
 
     res.status(201).json({
       message: "Accommodation created successfully.",
       accommodation,
     });
   } catch (error) {
-    console.error("Error saving accommodation:", error);
-
-    res.status(500).json({
-      error: "Failed to save accommodation. Check the backend logs.",
-    });
-  }
-};
-
-// POST /api/accommodations/:accommodationId/rooms
-export const addRoomInventory = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    const accommodationId = getAccommodationId(req);
-
-    if (!accommodationId) {
-      res.status(400).json({
-        error: "A valid accommodation ID is required.",
+    if (isDuplicateAccommodationName(error)) {
+      res.status(409).json({
+        message:
+          "An accommodation with this name already exists. Please use a different name or edit the existing accommodation.",
       });
       return;
     }
 
-    const { roomTypeName, totalCapacity, nightlyRate } = req.body;
+    if (
+      error instanceof Error &&
+      (
+        error.message.startsWith("Accommodation") ||
+        error.message.startsWith("Price per night") ||
+        error.message.startsWith("Star rating") ||
+        error.message.startsWith("Status must")
+      )
+    ) {
+      handleError(res, error, "Failed to create accommodation.", 400);
+      return;
+    }
 
-    const capacity = optionalNumber(totalCapacity);
-    const rate = optionalNumber(nightlyRate);
+    handleError(res, error, "Failed to create accommodation.");
+  }
+}
+
+export async function updateAccommodation(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const id = idFrom(req);
+    const existing = await hotelService.getAccommodationById(id);
+
+    if (!existing) {
+      res.status(404).json({ message: "Accommodation not found." });
+      return;
+    }
+
+    const dto = buildDTO(
+      req.body,
+      imagePaths(req),
+      existingImages(existing.images)
+    );
+
+    const accommodation = await hotelService.updateAccommodation(id, dto);
+
+    if (!accommodation) {
+      res.status(404).json({ message: "Accommodation not found." });
+      return;
+    }
+
+    res.status(200).json({
+      message: "Accommodation updated successfully.",
+      accommodation,
+    });
+  } catch (error) {
+    if (isDuplicateAccommodationName(error)) {
+      res.status(409).json({
+        message:
+          "Another accommodation already uses this name. Please choose a different name.",
+      });
+      return;
+    }
+
+    handleError(res, error, "Failed to update accommodation.");
+  }
+}
+
+export async function deleteAccommodation(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const deleted = await hotelService.deleteAccommodation(idFrom(req));
+
+    if (!deleted) {
+      res.status(404).json({ message: "Accommodation not found." });
+      return;
+    }
+
+    res.status(200).json({
+      message: "Accommodation deleted successfully.",
+    });
+  } catch (error) {
+    handleError(res, error, "Failed to delete accommodation.", 409);
+  }
+}
+
+export async function addRoomInventory(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const id = idFrom(req);
+    const { roomTypeName, totalCapacity, nightlyRate } = req.body;
+    const capacity = Number(totalCapacity);
+    const rate = Number(nightlyRate);
+
+    if (!(await hotelService.getAccommodationById(id))) {
+      res.status(404).json({ message: "Accommodation not found." });
+      return;
+    }
+
+    if (!String(roomTypeName ?? "").trim()) {
+      res.status(400).json({ message: "Room type name is required." });
+      return;
+    }
 
     if (
-      typeof roomTypeName !== "string" ||
-      !roomTypeName.trim() ||
-      capacity === null ||
       !Number.isInteger(capacity) ||
-      capacity <= 0 ||
-      rate === null ||
+      capacity < 1 ||
+      !Number.isFinite(rate) ||
       rate <= 0
     ) {
       res.status(400).json({
-        error:
-          "A room type, positive whole-number capacity, and positive nightly rate are required.",
+        message: "Enter a valid capacity and nightly rate.",
       });
       return;
     }
 
-    const inventory = await hotelService.insertRoomInventory(
-      accommodationId,
-      {
-        roomTypeName: roomTypeName.trim(),
-        totalCapacity: capacity,
-        nightlyRate: rate,
-      }
-    );
+    const room = await hotelService.insertRoomInventory(id, {
+      roomTypeName: String(roomTypeName).trim(),
+      totalCapacity: capacity,
+      nightlyRate: rate,
+    } as CreateRoomInventoryDTO);
 
     res.status(201).json({
-      success: true,
       message: "Room inventory added successfully.",
-      inventory,
+      room,
     });
   } catch (error) {
-    console.error("Error adding room inventory:", error);
-
-    res.status(500).json({
-      error: "Failed to add room inventory.",
-    });
+    handleError(res, error, "Failed to add room inventory.");
   }
-};
+}
 
-// GET /api/snapshot
-export const getDashboardSnapshot = async (
+export async function getRoomInventory(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const rooms = await hotelService.getRoomInventory(idFrom(req));
+    res.status(200).json({ rooms });
+  } catch (error) {
+    handleError(res, error, "Failed to load room inventory.");
+  }
+}
+
+export async function getDashboardSnapshot(
   _req: Request,
   res: Response
-): Promise<void> => {
+): Promise<void> {
   try {
-    const metrics = await hotelService.computeDashboardSnapshot();
-
-    res.status(200).json(metrics);
+    const snapshot = await hotelService.computeDashboardSnapshot();
+    res.status(200).json({ snapshot });
   } catch (error) {
-    console.error("Error loading dashboard snapshot:", error);
-
-    res.status(500).json({
-      error: "Failed to load dashboard data.",
-    });
+    handleError(res, error, "Failed to load dashboard summary.");
   }
-};
+}

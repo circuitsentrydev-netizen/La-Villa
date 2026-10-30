@@ -88,12 +88,16 @@ export const authService = {
   },
 
   // Traditional registration: always create a normal USER account.
+    // Traditional registration: always create a normal USER account.
   registerWithPassword: async (
     input: RegisterInput
   ): Promise<AuthResponse> => {
-    const name = input.name.trim();
-    const sanitizedEmail = input.email.trim().toLowerCase();
-    const password = input.password_hash;
+    const name = input.name?.trim();
+    const sanitizedEmail = input.email?.trim().toLowerCase();
+    
+    // CRITICAL BUG CHECK: Ensure the frontend is actually sending password_hash or password
+    // Sometimes the frontend payload uses 'password', mapping it incorrectly here.
+    const password = input.password_hash || (input as any).password;
 
     if (!name || !sanitizedEmail || !password) {
       throw new Error('Name, email, and password are required.');
@@ -103,6 +107,7 @@ export const authService = {
       throw new Error('Password must contain at least 8 characters.');
     }
 
+    console.log('[Register] Checking for duplicate email...');
     const duplicateCheck = await pool.query(
       'SELECT id FROM users WHERE email = $1',
       [sanitizedEmail]
@@ -112,22 +117,38 @@ export const authService = {
       throw new Error('An account with this email address already exists.');
     }
 
+    // 1. Move bcrypt away from database allocation timing
+    console.log('[Register] Hashing password...');
     const secureHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, email, role`,
-      [name, sanitizedEmail, secureHash, 'USER']
-    );
+    // 2. Neon Poolers hate long idle sockets. We pull a fresh client right before insertion
+    console.log('[Register] Inserting user into Neon...');
+    const client = await pool.connect();
+    try {
+      // Set a strict local query timeout for this execution so it doesn't hang the thread
+      await client.query('SET statement_timeout = 5000'); 
+      
+      const result = await client.query(
+        `INSERT INTO users (name, email, password_hash, role)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, name, email, role`,
+        [name, sanitizedEmail, secureHash, 'USER']
+      );
 
-    if (!result.rows.length) {
-      throw new Error('Account creation failed. Please try again.');
+      if (!result.rows.length) {
+        throw new Error('Account creation failed. Please try again.');
+      }
+
+      console.log('[Register] User created successfully!');
+      return toAuthResponse(result.rows[0]);
+
+    } catch (dbError: any) {
+      console.error('[Register DB Exec Error]:', dbError);
+      throw dbError;
+    } finally {
+      // Explicitly return the client to the pool immediately
+      client.release(true); 
     }
-
-    // The backend still returns its expected response shape.
-    // The frontend registration reducer deliberately ignores the token.
-    return toAuthResponse(result.rows[0]);
   },
 
   // Traditional email and password login.

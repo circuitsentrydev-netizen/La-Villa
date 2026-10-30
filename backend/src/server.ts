@@ -2,12 +2,17 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
+<<<<<<< HEAD
 import { textDbConnection } from "./config/database";
+=======
+>>>>>>> f7725242046a9f9286e2f019f31109cfe7671e0b
 import authRoute from "./routes/authRoute";
 import hotelRoute from "./routes/hotelRoute";
 import userRoute from "./routes/userRoutes";
 import roomRoute from "./routes/roomRoute";
 import reservationRoute from "./routes/reservationRoute";
+import favoriteRoute from "./routes/favoriteRoute";
+import reviewRoute from "./routes/reviewRoute";
 
 dotenv.config();
 
@@ -28,16 +33,19 @@ app.use("/api", userRoute);
 app.use("/api", hotelRoute);
 app.use("/api/rooms", roomRoute);
 app.use("/api/reservations", reservationRoute);
+app.use("/api/favorites", favoriteRoute);
+app.use("/api/reviews", reviewRoute);
 
 const startServer = async () => {
   try {
-    await textDbConnection();
+    
+    console.log("Database verification complete. Starting server...");
 
     app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (error) {
-    console.error("Failed to start server:", error);
+    console.error("Failed to start server due to database connection error:", error);
     process.exit(1);
   }
 };

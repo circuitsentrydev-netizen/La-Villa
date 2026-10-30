@@ -42,18 +42,19 @@ export const authController = {
         ...authData,
       });
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Registration failed.';
+  console.error("REGISTER ERROR:", error);
 
-      console.error('Registration error:', message);
-
-      if (message.includes('already exists')) {
-        res.status(409).json({ error: message });
-        return;
-      }
-
-      res.status(400).json({ error: message });
-    }
+  if (error instanceof Error) {
+    console.error("MESSAGE:", error.message);
+    console.error("STACK:", error.stack);
+  }
+ console.log("Backend error:", error)
+  res.status(500).json({
+    error: error instanceof Error
+      ? error.message
+      : String(error),
+  });
+}
   },
 
   handleLogin: async (

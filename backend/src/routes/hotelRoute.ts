@@ -1,17 +1,13 @@
 
-import { Router, type Request } from "express";
-import multer, { type FileFilterCallback } from "multer";
-import fs from "fs";
+import { Router } from "express";
+import multer from "multer";
 import path from "path";
+import fs from "fs";
 
-import {
-  getAllAccommodations,
-  createAccommodation,
-  addRoomInventory,
+import {getAllAccommodations,getAccommodationById,createAccommodation,updateAccommodation,deleteAccommodation,addRoomInventory,
+  getRoomInventory,
   getDashboardSnapshot,
-  getAccommodationById,
 } from "../controllers/hotelController";
-
 import { authMiddleware } from "../middleware/authMiddleware";
 
 const router = Router();
@@ -23,63 +19,40 @@ if (!fs.existsSync(uploadDirectory)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (
-    _req: Request,
-    _file: Express.Multer.File,
-    callback: (error: Error | null, destination: string) => void
-  ) => {
-    callback(null, uploadDirectory);
-  },
-
-  filename: (
-    _req: Request,
-    file: Express.Multer.File,
-    callback: (error: Error | null, filename: string) => void
-  ) => {
+  destination: (_req, _file, callback) => callback(null, uploadDirectory),
+  filename: (_req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();
-    const filename = `${Date.now()}-${Math.round(
-      Math.random() * 1000000
-    )}${extension}`;
+    const safeName = path
+      .basename(file.originalname, extension)
+      .replace(/[^a-zA-Z0-9_-]/g, "-")
+      .slice(0, 50);
 
-    callback(null, filename);
+    callback(null, `${Date.now()}-${safeName || "image"}${extension}`);
   },
 });
 
-const fileFilter = (
-  _req: Request,
-  file: Express.Multer.File,
-  callback: FileFilterCallback
-): void => {
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-
-  if (allowedTypes.includes(file.mimetype)) {
-    callback(null, true);
-  } else {
-    callback(new Error("Only JPG, PNG, and WebP images are allowed."));
+const imageFilter: multer.Options["fileFilter"] = (_req, file, callback) => {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
+    callback(new Error("Only JPEG, PNG, and WebP images are allowed."));
+    return;
   }
+
+  callback(null, true);
 };
 
 const upload = multer({
   storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024,
-    files: 10,
-  },
-  fileFilter,
+  fileFilter: imageFilter,
+  limits: { files: 10, fileSize: 5 * 1024 * 1024 },
 });
 
-// Dashboard summary
+// Public read endpoints
 router.get("/snapshot", getDashboardSnapshot);
-
-// Public accommodation listings
 router.get("/accommodations", getAllAccommodations);
-router.get(
-  "/accommodations/:accommodationId",
-  getAccommodationById
-);
+router.get("/accommodations/:accommodationId", getAccommodationById);
+router.get("/accommodations/:accommodationId/rooms", getRoomInventory);
 
-// Admin-only accommodation creation with image uploads
-
+// Admin-only modification endpoints
 router.post(
   "/accommodations",
   authMiddleware.requireAuth,
@@ -88,7 +61,21 @@ router.post(
   createAccommodation
 );
 
-// Admin-only room inventory creation
+router.put(
+  "/accommodations/:accommodationId",
+  authMiddleware.requireAuth,
+  authMiddleware.requireAdmin,
+  upload.array("images", 10),
+  updateAccommodation
+);
+
+router.delete(
+  "/accommodations/:accommodationId",
+  authMiddleware.requireAuth,
+  authMiddleware.requireAdmin,
+  deleteAccommodation
+);
+
 router.post(
   "/accommodations/:accommodationId/rooms",
   authMiddleware.requireAuth,

@@ -26,10 +26,7 @@ export class HotelService {
     accommodationId: string
   ): Promise<Record<string, unknown> | null> {
     const result = await pool.query(
-      `SELECT *
-       FROM accommodations
-       WHERE id = $1
-       LIMIT 1`,
+      `SELECT * FROM accommodations WHERE id = $1 LIMIT 1`,
       [accommodationId]
     );
 
@@ -46,8 +43,7 @@ export class HotelService {
     if (search?.trim()) {
       values.push(`%${search.trim()}%`);
       conditions.push(
-        `(name ILIKE $${values.length}
-          OR address ILIKE $${values.length})`
+        `(name ILIKE $${values.length} OR address ILIKE $${values.length})`
       );
     }
 
@@ -56,14 +52,14 @@ export class HotelService {
       conditions.push(`status = $${values.length}`);
     }
 
-    const whereClause = conditions.length
+    const where = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
 
     const result = await pool.query(
       `SELECT *
        FROM accommodations
-       ${whereClause}
+       ${where}
        ORDER BY id DESC`,
       values
     );
@@ -90,7 +86,7 @@ export class HotelService {
       )
       VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11
+        $7::jsonb, $8, $9, $10, $11
       )
       RETURNING *`,
       [
@@ -101,14 +97,120 @@ export class HotelService {
         dto.starRating,
         dto.status,
         JSON.stringify(dto.facilities),
-        JSON.stringify(dto.policies),
+        dto.policies,
         dto.latitude,
         dto.longitude,
-        JSON.stringify(dto.images),
+        dto.images,
       ]
     );
 
     return result.rows[0];
+  }
+
+  public async updateAccommodation(
+    accommodationId: string,
+    dto: CreateAccommodationDTO
+  ): Promise<Record<string, unknown> | null> {
+    const result = await pool.query(
+      `UPDATE accommodations
+       SET name = $1,
+           address = $2,
+           price_per_night = $3,
+           description = $4,
+           star_rating = $5,
+           status = $6,
+           facilities = $7::jsonb,
+           policies = $8,
+           latitude = $9,
+           longitude = $10,
+           images = $11
+       WHERE id = $12
+       RETURNING *`,
+      [
+        dto.name,
+        dto.address,
+        dto.pricePerNight,
+        dto.description,
+        dto.starRating,
+        dto.status,
+        JSON.stringify(dto.facilities),
+        dto.policies,
+        dto.latitude,
+        dto.longitude,
+        dto.images,
+        accommodationId,
+      ]
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  public async deleteAccommodation(
+    accommodationId: string
+  ): Promise<boolean> {
+    const client = await pool.connect();
+    let transactionStarted = false;
+
+    try {
+      await client.query("BEGIN");
+      transactionStarted = true;
+
+      const accommodation = await client.query(
+        `SELECT id
+         FROM accommodations
+         WHERE id = $1
+         FOR UPDATE`,
+        [accommodationId]
+      );
+
+      if (accommodation.rowCount === 0) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return false;
+      }
+
+      // Protect accommodations that already have reservations.
+      const reservationCheck = await client.query(
+        `SELECT r.id
+         FROM reservations r
+         JOIN room_inventories ri
+           ON ri.id = r.room_inventory_id
+         WHERE ri.accommodation_id = $1
+         LIMIT 1`,
+        [accommodationId]
+      );
+
+      if ((reservationCheck.rowCount ?? 0) > 0) {
+        throw new Error(
+          "This accommodation has reservations and cannot be deleted."
+        );
+      }
+
+      await client.query(
+        `DELETE FROM room_inventories
+         WHERE accommodation_id = $1`,
+        [accommodationId]
+      );
+
+      await client.query(
+        `DELETE FROM accommodations
+         WHERE id = $1`,
+        [accommodationId]
+      );
+
+      await client.query("COMMIT");
+      transactionStarted = false;
+
+      return true;
+    } catch (error) {
+      if (transactionStarted) {
+        await client.query("ROLLBACK");
+      }
+
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async insertRoomInventory(
@@ -136,18 +238,32 @@ export class HotelService {
     return result.rows[0];
   }
 
+  public async getRoomInventory(
+    accommodationId: string
+  ): Promise<Record<string, unknown>[]> {
+    const result = await pool.query(
+      `SELECT *
+       FROM room_inventories
+       WHERE accommodation_id = $1
+       ORDER BY id DESC`,
+      [accommodationId]
+    );
+
+    return result.rows;
+  }
+
   public async computeDashboardSnapshot(): Promise<
     Record<string, number>
   > {
     const result = await pool.query(
       `SELECT
-        COUNT(*)::int AS total_accommodations,
-        COUNT(*) FILTER (
-          WHERE status = 'Published'
-        )::int AS published_accommodations,
-        COUNT(*) FILTER (
-          WHERE status = 'Draft'
-        )::int AS draft_accommodations
+         COUNT(*)::int AS total_accommodations,
+         COUNT(*) FILTER (
+           WHERE status = 'Published'
+         )::int AS published_accommodations,
+         COUNT(*) FILTER (
+           WHERE status = 'Draft'
+         )::int AS draft_accommodations
        FROM accommodations`
     );
 

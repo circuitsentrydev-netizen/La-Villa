@@ -1,131 +1,436 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useSelector, useDispatch } from 'react-redux';
-import type { RootState } from '../app/store';
-import { logout } from '../features/auth/authSlice';
-import { API_BASE_URL } from '../config/api';
+
+import { useCallback, useEffect, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
+import { API_BASE_URL } from "../config/api";
+import { logout } from "../features/auth/authSlice";
+import type { RootState } from "../app/store";
+import "./AdminDashboard.css";
 
 interface Accommodation {
   id: string;
-  accommodation: string;
-  location: string;
-  starRating: number;
-  nightlyRate: string;
+  name: string;
+  address: string;
+  price_per_night: string | number;
+  star_rating: number;
   status: string;
-  roomInventory: string;
 }
 
-export function AdminDashboard() {
+const token = () =>
+  localStorage.getItem("lavilla_token") || localStorage.getItem("token");
+
+const money = (price: string | number) =>
+  new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+    maximumFractionDigits: 0,
+  }).format(Number(price) || 0);
+
+export default function AdminDashboard() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { user } = useSelector((state: RootState) => state.auth);
+  const user = useSelector((state: RootState) => state.auth?.user);
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'accommodations'>('overview');
-  const [liveHotels, setLiveHotels] = useState<Accommodation[]>([]);
-  const [loadingHotels, setLoadingHotels] = useState(false);
+  const [tab, setTab] = useState<"overview" | "accommodations">("overview");
+  const [hotels, setHotels] = useState<Accommodation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const fetchHotels = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const activeToken = token();
+
+      const response = await fetch(`${API_BASE_URL}/accommodations`, {
+        headers: activeToken
+          ? { Authorization: `Bearer ${activeToken}` }
+          : {},
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load accommodations.");
+      }
+
+      const data = await response.json();
+
+      setHotels(
+        Array.isArray(data)
+          ? data
+          : data?.data?.accommodations || data?.accommodations || []
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to load listings."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (activeTab === 'accommodations' || activeTab === 'overview') {
-      const fetchInventory = async () => {
-        setLoadingHotels(true);
-        try {
-          const token = localStorage.getItem('lavilla_token');
-          const response = await fetch(`${API_BASE_URL}/accommodations`, {
-            method: 'GET',
-            headers: { 'Authorization': token ? `Bearer ${token}` : '' }
-          });
-          if (response.ok) {
-            const data = await response.json();
-            setLiveHotels(data);
-          }
-        } catch (error) {
-          console.error("Error reading database:", error);
-        } finally {
-          setLoadingHotels(false);
-        }
-      };
-      fetchInventory();
+    void fetchHotels();
+  }, [fetchHotels]);
+
+  const deleteHotel = async (hotel: Accommodation) => {
+    if (!window.confirm(`Delete "${hotel.name}"? This cannot be undone.`)) {
+      return;
     }
-  }, [activeTab]);
+
+    try {
+      const activeToken = token();
+
+      const response = await fetch(
+        `${API_BASE_URL}/accommodations/${encodeURIComponent(hotel.id)}`,
+        {
+          method: "DELETE",
+          headers: activeToken
+            ? { Authorization: `Bearer ${activeToken}` }
+            : {},
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete accommodation.");
+      }
+
+      await fetchHotels();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to delete listing."
+      );
+    }
+  };
+
+  const manageRoomTypes = (hotel: Accommodation) => {
+    navigate(
+      `/admin/accommodations/${encodeURIComponent(hotel.id)}/rooms`
+    );
+  };
+
+  const signOut = () => {
+    localStorage.removeItem("lavilla_token");
+    localStorage.removeItem("token");
+    dispatch(logout());
+    navigate("/admin/login");
+  };
+
+  const published = hotels.filter(
+    (hotel) => hotel.status?.toLowerCase() === "published"
+  );
 
   return (
-    <div style={{ background: '#FAF9F6', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', display: 'grid', gridTemplateColumns: '240px 1fr' }}>
-      <aside style={{ background: '#ffffff', borderRight: '1px solid #EAEAEA', padding: '24px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-        <div>
-          <strong style={{ color: '#1B4D3E', fontSize: '22px', display: 'block', marginBottom: '32px' }}>La Villa</strong>
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <button type="button" onClick={() => setActiveTab('overview')} style={{ width: '100%', padding: '10px 12px', border: 0, borderRadius: '6px', textAlign: 'left', fontWeight: 600, background: activeTab === 'overview' ? '#EAEAEA' : 'none', cursor: 'pointer' }}>Overview</button>
-            <button type="button" onClick={() => setActiveTab('accommodations')} style={{ width: '100%', padding: '10px 12px', border: 0, borderRadius: '6px', textAlign: 'left', fontWeight: 600, background: activeTab === 'accommodations' ? '#BAE6FD' : 'none', cursor: 'pointer' }}>Accommodations</button>
-          </nav>
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <div className="admin-brand">
+          <span className="admin-brand-mark">LV</span>
+          <span className="admin-brand-copy">
+            <strong>La Villa</strong>
+            <small>ADMINISTRATION</small>
+          </span>
         </div>
-        <div>
-          <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '12px' }}>
-            Admin: <strong>{user?.name || 'Root Master'}</strong>
+
+        <div className="admin-nav-label">WORKSPACE</div>
+
+        <nav className="admin-nav">
+          <button
+            className={`admin-nav-item ${
+              tab === "overview" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("overview")}
+          >
+            ⌂ Overview
+          </button>
+
+          <button
+            className={`admin-nav-item ${
+              tab === "accommodations" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("accommodations")}
+          >
+            ▤ Accommodations Inventory
+            <span className="admin-nav-count">{hotels.length}</span>
+          </button>
+
+          <button
+            className="admin-nav-item"
+            onClick={() => navigate("/admin/reservations")}
+          >
+            ▣ Manage Reservations
+          </button>
+        </nav>
+
+        <div className="admin-sidebar-bottom">
+          <div className="admin-user-card">
+            <span className="admin-avatar">
+              {String(
+                user && "name" in user ? user.name || "A" : "A"
+              )
+                .charAt(0)
+                .toUpperCase()}
+            </span>
+
+            <span className="admin-user-copy">
+              <strong>
+                {user && "name" in user
+                  ? String(user.name || "Administrator")
+                  : "Administrator"}
+              </strong>
+              <small>Administrator</small>
+            </span>
           </div>
-          <button type="button" onClick={() => { localStorage.clear(); dispatch(logout()); navigate('/admin/login'); }} style={{ width: '100%', padding: '8px', border: '1px solid #ef4444', borderRadius: '4px', background: 'none', color: '#ef4444', cursor: 'pointer' }}>Sign out</button>
+
+          <button className="admin-signout" onClick={signOut}>
+            ↪ Sign out
+          </button>
         </div>
       </aside>
 
-      <main style={{ padding: '40px' }}>
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
-          <h1 style={{ fontSize: '28px', fontWeight: 700 }}>{activeTab === 'overview' ? 'Operational Snapshot' : 'Accommodations Inventory'}</h1>
-          <button type="button" onClick={() => navigate('/admin/accommodations/new')} style={{ background: '#1B4D3E', color: 'white', border: 0, padding: '10px 16px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>+ Add accommodation</button>
+      <main className="admin-main">
+        <header className="admin-topbar">
+          <div className="admin-breadcrumb">
+            La Villa <span>/</span>{" "}
+            <strong>
+              {tab === "overview"
+                ? "Overview"
+                : "Accommodations Inventory"}
+            </strong>
+          </div>
+
+          <div className="admin-topbar-right">
+            <span className="admin-status-dot" /> Admin workspace
+          </div>
         </header>
 
-        {activeTab === 'overview' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
-            <div style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>Active Accommodations</span>
-              <strong style={{ display: 'block', fontSize: '24px' }}>
-                {loadingHotels ? '...' : `${liveHotels.length} Listings`}
-              </strong>
-            </div>
-            <div style={{ background: '#ffffff', padding: '20px', borderRadius: '8px', border: '1px solid #E2E8F0' }}>
-              <span style={{ fontSize: '13px', color: '#64748b' }}>System Status</span>
-              <strong style={{ display: 'block', fontSize: '24px', color: '#16a34a' }}>Live & Connected</strong>
-            </div>
-          </div>
-        )}
+        <div className="admin-content">
+          <section className="admin-page-heading">
+            <div>
+              <p className="admin-eyebrow">PROPERTY MANAGEMENT</p>
 
-        {activeTab === 'accommodations' && (
-          <div style={{ background: '#ffffff', borderRadius: '8px', border: '1px solid #E2E8F0', padding: '24px' }}>
-            {/* 💡 Fixed: Implemented loadingHotels flag check interface wrapper to clear TS warnings */}
-            {loadingHotels ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#64748b', fontWeight: 500 }}>
-                Querying active database rows...
+              <h1>
+                {tab === "overview"
+                  ? "Operational Snapshot"
+                  : "Accommodations Inventory"}
+              </h1>
+
+              <p className="admin-subtitle">
+                {tab === "overview"
+                  ? "Manage your properties and monitor your listings."
+                  : "Edit, review, and manage the accommodations you uploaded."}
+              </p>
+            </div>
+
+            <button
+              className="admin-primary-button"
+              onClick={() => navigate("/admin/accommodations/new")}
+            >
+              ＋ Add accommodation
+            </button>
+          </section>
+
+          {error && (
+            <div className="admin-alert" role="alert">
+              {error}
+              <button onClick={() => setError("")}>×</button>
+            </div>
+          )}
+
+          {tab === "overview" && (
+            <section className="admin-stats-grid">
+              {[
+                ["Total accommodations", hotels.length],
+                ["Published listings", published.length],
+                ["Other statuses", hotels.length - published.length],
+              ].map(([label, count]) => (
+                <article className="admin-stat-card" key={String(label)}>
+                  <div className="admin-stat-top">
+                    <span className="admin-stat-label">{label}</span>
+                    <span className="admin-stat-icon">⌂</span>
+                  </div>
+
+                  <strong className="admin-stat-value">
+                    {loading ? "—" : count}
+                  </strong>
+
+                  <span className="admin-stat-note">
+                    Your property inventory
+                  </span>
+                </article>
+              ))}
+            </section>
+          )}
+
+          <section className="admin-panel">
+            <div className="admin-panel-heading">
+              <div>
+                <h2>
+                  {tab === "overview"
+                    ? "Recent accommodations"
+                    : `All accommodations (${hotels.length})`}
+                </h2>
+                <p>Manage your uploaded property listings.</p>
               </div>
-            ) : liveHotels.length === 0 ? (
-              <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-                No accommodations found in your database. Click "+ Add accommodation" to start.
+
+              <button
+                className="admin-secondary-button"
+                disabled={loading}
+                onClick={() =>
+                  void (
+                    tab === "overview"
+                      ? setTab("accommodations")
+                      : fetchHotels()
+                  )
+                }
+              >
+                {tab === "overview"
+                  ? "View inventory →"
+                  : loading
+                    ? "Refreshing…"
+                    : "↻ Refresh"}
+              </button>
+            </div>
+
+            {loading ? (
+              <div className="admin-inline-state">
+                Loading accommodations…
+              </div>
+            ) : hotels.length === 0 ? (
+              <div className="admin-empty-state">
+                <span className="admin-empty-icon">⌂</span>
+                <h3>No accommodations found</h3>
+                <p>Add a property to see it in your inventory.</p>
+                <button
+                  className="admin-primary-button"
+                  onClick={() => navigate("/admin/accommodations/new")}
+                >
+                  Add accommodation
+                </button>
               </div>
             ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #E2E8F0', color: '#64748b', textAlign: 'left' }}>
-                    <th style={{ padding: '12px' }}>Accommodation</th>
-                    <th style={{ padding: '12px' }}>Location</th>
-                    <th style={{ padding: '12px' }}>Rating</th>
-                    <th style={{ padding: '12px' }}>Rate</th>
-                    <th style={{ padding: '12px' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {liveHotels.map((hotel) => (
-                    <tr key={hotel.id} style={{ borderBottom: '1px solid #E2E8F0' }}>
-                      <td style={{ padding: '12px', fontWeight: 600 }}>{hotel.accommodation}</td>
-                      <td style={{ padding: '12px' }}>{hotel.location}</td>
-                      <td style={{ padding: '12px', color: '#f59e0b' }}>★ {hotel.starRating}</td>
-                      <td style={{ padding: '12px' }}>{hotel.nightlyRate}</td>
-                      <td style={{ padding: '12px' }}>{hotel.status}</td>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Accommodation</th>
+                      <th>Address</th>
+                      <th>Rating</th>
+                      <th>Price per night</th>
+                      <th>Status</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+
+                  <tbody>
+                    {(tab === "overview" ? hotels.slice(0, 4) : hotels).map(
+                      (hotel) => (
+                        <tr key={hotel.id}>
+                          <td>
+                            <div className="admin-table-property">
+                              <span className="admin-table-property-icon">
+                                ⌂
+                              </span>
+                              <span className="admin-table-property-name">
+                                {hotel.name}
+                              </span>
+                            </div>
+                          </td>
+
+                          <td>
+                            <span className="admin-address-cell">
+                              {hotel.address || "—"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <span className="admin-rating">
+                              ★ {hotel.star_rating ?? "—"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <strong className="admin-price-cell">
+                              {money(hotel.price_per_night)}
+                            </strong>
+                          </td>
+
+                          <td>
+                            <span
+                              className={`admin-status-pill ${
+                                hotel.status?.toLowerCase() === "published"
+                                  ? "status-published"
+                                  : "status-other"
+                              }`}
+                            >
+                              <span className="admin-status-indicator" />
+                              {hotel.status || "Unspecified"}
+                            </span>
+                          </td>
+
+                          <td>
+                            <div
+                              className="admin-row-actions"
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 8,
+                              }}
+                            >
+                              <button
+                                type="button"
+                                className="admin-edit-button"
+                                onClick={() =>
+                                  navigate(
+                                    `/admin/accommodations/${encodeURIComponent(
+                                      hotel.id
+                                    )}/edit`
+                                  )
+                                }
+                              >
+                                ✎ Edit
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => manageRoomTypes(hotel)}
+                                style={{
+                                  padding: "8px 12px",
+                                  border: "1px solid #1B4D3E",
+                                  borderRadius: 6,
+                                  background: "#fff",
+                                  color: "#1B4D3E",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                  fontSize: 12,
+                                }}
+                              >
+                                Manage Room Types
+                              </button>
+
+                              <button
+                                type="button"
+                                className="admin-delete-button"
+                                onClick={() => void deleteHotel(hotel)}
+                              >
+                                × Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </div>
-        )}
+
+            <div className="admin-panel-footer">
+              <span>{hotels.length} accommodations</span>
+              <span>La Villa property management</span>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   );
 }
-export default AdminDashboard;

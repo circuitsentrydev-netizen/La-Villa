@@ -1,4 +1,3 @@
-
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import { API_BASE_URL } from '../../config/api';
 
@@ -24,7 +23,10 @@ interface AuthState {
   error: string | null;
 }
 
-const savedToken = localStorage.getItem('lavilla_token');
+// Check both possible storage keys to ensure robust token retrieval
+const savedToken =
+  localStorage.getItem('lavilla_token') ||
+  localStorage.getItem('token');
 
 const initialState: AuthState = {
   user: null,
