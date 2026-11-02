@@ -2,10 +2,6 @@ import express from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import path from "path";
-<<<<<<< HEAD
-import { textDbConnection } from "./config/database";
-=======
->>>>>>> f7725242046a9f9286e2f019f31109cfe7671e0b
 import authRoute from "./routes/authRoute";
 import hotelRoute from "./routes/hotelRoute";
 import userRoute from "./routes/userRoutes";
