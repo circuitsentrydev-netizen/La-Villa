@@ -5,4 +5,4 @@ const configuredApiUrl = import.meta.env.VITE_API_BASE_URL?.trim();
 
 export const API_BASE_URL = configuredApiUrl
   ? configuredApiUrl.replace(/\/+$/, '')
-  : 'http://localhost:3002/api';
+  : 'https://la-villa-3.onrender.com/api';
