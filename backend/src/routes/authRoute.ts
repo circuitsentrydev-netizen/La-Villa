@@ -1,31 +1,27 @@
-
-import { Router } from "express";
-import { authController } from "../controllers/authController";
-import { authMiddleware } from "../middleware/authMiddleware";
+import { Router } from 'express';
+import { authController } from '../controllers/authController';
+import { authMiddleware } from '../middleware/authMiddleware';
 import {
   getMyProfile,
   updateMyProfile,
-} from "../controllers/userController";
+} from '../controllers/userController';
 
 const router = Router();
 
-// Public authentication routes
-router.post("/register", authController.handleRegister);
-router.post("/login", authController.handleLogin);
+// Public authentication routes.
+router.post('/register', authController.handleRegister);
+router.post('/login', authController.handleLogin);
+router.post('/google', authController.handleGoogleLogin);
 
-// OAuth route retained for compatibility
-router.post("/oauth-login", authController.handleOAuthLogin);
-
-// Authenticated customer profile routes
-// These must be declared before any /profile/:id routes.
+// Authenticated customer profile routes.
 router.get(
-  "/profile/me",
+  '/profile/me',
   authMiddleware.requireAuth,
   getMyProfile
 );
 
 router.put(
-  "/profile/me",
+  '/profile/me',
   authMiddleware.requireAuth,
   updateMyProfile
 );

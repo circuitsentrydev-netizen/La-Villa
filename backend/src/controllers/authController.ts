@@ -1,6 +1,8 @@
-
 import type { Request, Response } from 'express';
+import { OAuth2Client } from 'google-auth-library';
 import { authService } from '../services/authService';
+
+const googleClient = new OAuth2Client();
 
 export const authController = {
   handleRegister: async (
@@ -42,19 +44,16 @@ export const authController = {
         ...authData,
       });
     } catch (error: unknown) {
-  console.error("REGISTER ERROR:", error);
+      const message =
+        error instanceof Error ? error.message : 'Registration failed.';
 
-  if (error instanceof Error) {
-    console.error("MESSAGE:", error.message);
-    console.error("STACK:", error.stack);
-  }
- console.log("Backend error:", error)
-  res.status(500).json({
-    error: error instanceof Error
-      ? error.message
-      : String(error),
-  });
-}
+      const status = message.toLowerCase().includes('already exists')
+        ? 409
+        : 500;
+
+      console.error('Register error:', message);
+      res.status(status).json({ error: message });
+    }
   },
 
   handleLogin: async (
@@ -94,38 +93,70 @@ export const authController = {
     }
   },
 
-  // Kept for compatibility with the existing authRoute.
-  // This is not a substitute for validating a real OAuth provider token.
-  handleOAuthLogin: async (
+  handleGoogleLogin: async (
     req: Request,
     res: Response
   ): Promise<void> => {
     try {
-      const { email, name, avatar } = req.body ?? {};
+      const { credential } = req.body ?? {};
+      const clientId = process.env.GOOGLE_CLIENT_ID;
 
-      if (typeof email !== 'string' || !email.trim()) {
-        res.status(400).json({
-          error: 'A valid email is required.',
+      if (!clientId) {
+        res.status(500).json({
+          error: 'Google sign-in is not configured on the server.',
         });
         return;
       }
 
-      const authData = await authService.loginOrRegister({
-        email: email.trim().toLowerCase(),
-        name: typeof name === 'string' ? name : undefined,
-        avatar: typeof avatar === 'string' ? avatar : undefined,
+      if (
+        typeof credential !== 'string' ||
+        !credential.trim() ||
+        credential.length > 12000
+      ) {
+        res.status(400).json({
+          error: 'A valid Google credential is required.',
+        });
+        return;
+      }
+
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: clientId,
+      });
+
+      const payload = ticket.getPayload();
+
+      if (
+        !payload?.sub ||
+        !payload.email ||
+        payload.email_verified !== true
+      ) {
+        res.status(401).json({
+          error: 'Google could not verify this email address.',
+        });
+        return;
+      }
+
+      const authData = await authService.loginOrRegisterWithGoogle({
+        googleSub: payload.sub,
+        email: payload.email,
+        name: payload.name || payload.email.split('@')[0],
+        picture: payload.picture,
       });
 
       res.status(200).json({
-        message: 'Authentication successful.',
+        message: 'Google sign-in successful.',
         ...authData,
       });
     } catch (error: unknown) {
       const message =
-        error instanceof Error ? error.message : 'Authentication failed.';
+        error instanceof Error ? error.message : 'Google sign-in failed.';
 
-      console.error('OAuth handler error:', message);
-      res.status(400).json({ error: message });
+      console.error('Google sign-in error:', message);
+
+      res.status(401).json({
+        error: 'Google sign-in could not be verified. Please try again.',
+      });
     }
   },
 };

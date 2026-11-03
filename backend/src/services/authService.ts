@@ -1,9 +1,7 @@
-
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { pool } from '../config/database';
 import {
-  type OAuthLoginInput,
   type RegisterInput,
   type LoginInput,
   type AuthResponse,
@@ -16,6 +14,15 @@ if (!SECRET) {
 }
 
 const SALT_ROUNDS = 10;
+const GOOGLE_PASSWORD_MARKER = 'GOOGLE_OAUTH_ACCOUNT';
+
+interface DatabaseUser {
+  id: string | number;
+  name: string;
+  email: string;
+  role: string;
+  image?: string | null;
+}
 
 function createToken(user: {
   id: string | number;
@@ -33,12 +40,7 @@ function createToken(user: {
   );
 }
 
-function toAuthResponse(user: {
-  id: string | number;
-  name: string;
-  email: string;
-  role: string;
-}): AuthResponse {
+function toAuthResponse(user: DatabaseUser): AuthResponse {
   return {
     token: createToken(user),
     user: {
@@ -46,58 +48,18 @@ function toAuthResponse(user: {
       name: user.name,
       email: user.email,
       role: user.role?.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'USER',
+      ...(user.image ? { avatar: user.image } : {}),
     },
   };
 }
 
 export const authService = {
-  // Registration through an actual OAuth provider must be implemented
-  // separately. This method is retained for compatibility with authRoute.
-  // Do not use a client-supplied email to grant administrator privileges.
-  loginOrRegister: async (
-    input: OAuthLoginInput
-  ): Promise<AuthResponse> => {
-    const sanitizedEmail = input.email.trim().toLowerCase();
-
-    if (!sanitizedEmail) {
-      throw new Error('Email is required.');
-    }
-
-    const userCheck = await pool.query(
-      'SELECT id, name, email, role FROM users WHERE email = $1',
-      [sanitizedEmail]
-    );
-
-    if (userCheck.rows.length > 0) {
-      return toAuthResponse(userCheck.rows[0]);
-    }
-
-    const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, email, role`,
-      [
-        input.name?.trim() || 'Villa Guest',
-        sanitizedEmail,
-        'OAUTH_EXTERNAL_ACCOUNT',
-        'USER',
-      ]
-    );
-
-    return toAuthResponse(result.rows[0]);
-  },
-
-  // Traditional registration: always create a normal USER account.
-    // Traditional registration: always create a normal USER account.
   registerWithPassword: async (
     input: RegisterInput
   ): Promise<AuthResponse> => {
     const name = input.name?.trim();
     const sanitizedEmail = input.email?.trim().toLowerCase();
-    
-    // CRITICAL BUG CHECK: Ensure the frontend is actually sending password_hash or password
-    // Sometimes the frontend payload uses 'password', mapping it incorrectly here.
-    const password = input.password_hash || (input as any).password;
+    const password = input.password_hash;
 
     if (!name || !sanitizedEmail || !password) {
       throw new Error('Name, email, and password are required.');
@@ -107,9 +69,8 @@ export const authService = {
       throw new Error('Password must contain at least 8 characters.');
     }
 
-    console.log('[Register] Checking for duplicate email...');
     const duplicateCheck = await pool.query(
-      'SELECT id FROM users WHERE email = $1',
+      'SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1',
       [sanitizedEmail]
     );
 
@@ -117,21 +78,16 @@ export const authService = {
       throw new Error('An account with this email address already exists.');
     }
 
-    // 1. Move bcrypt away from database allocation timing
-    console.log('[Register] Hashing password...');
     const secureHash = await bcrypt.hash(password, SALT_ROUNDS);
-
-    // 2. Neon Poolers hate long idle sockets. We pull a fresh client right before insertion
-    console.log('[Register] Inserting user into Neon...');
     const client = await pool.connect();
+
     try {
-      // Set a strict local query timeout for this execution so it doesn't hang the thread
-      await client.query('SET statement_timeout = 5000'); 
-      
+      await client.query('SET statement_timeout = 5000');
+
       const result = await client.query(
         `INSERT INTO users (name, email, password_hash, role)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, name, email, role`,
+         RETURNING id, name, email, role, image`,
         [name, sanitizedEmail, secureHash, 'USER']
       );
 
@@ -139,19 +95,12 @@ export const authService = {
         throw new Error('Account creation failed. Please try again.');
       }
 
-      console.log('[Register] User created successfully!');
-      return toAuthResponse(result.rows[0]);
-
-    } catch (dbError: any) {
-      console.error('[Register DB Exec Error]:', dbError);
-      throw dbError;
+      return toAuthResponse(result.rows[0] as DatabaseUser);
     } finally {
-      // Explicitly return the client to the pool immediately
-      client.release(true); 
+      client.release(true);
     }
   },
 
-  // Traditional email and password login.
   loginWithPassword: async (
     input: LoginInput
   ): Promise<AuthResponse> => {
@@ -162,7 +111,8 @@ export const authService = {
     }
 
     const result = await pool.query(
-      'SELECT id, name, email, role, password_hash FROM users WHERE email = $1',
+      `SELECT id, name, email, role, password_hash, image
+       FROM users WHERE LOWER(email) = $1 LIMIT 1`,
       [sanitizedEmail]
     );
 
@@ -170,11 +120,16 @@ export const authService = {
       throw new Error('Invalid email or password.');
     }
 
-    const user = result.rows[0];
+    const user = result.rows[0] as DatabaseUser & {
+      password_hash: string;
+    };
 
-    if (user.password_hash === 'OAUTH_EXTERNAL_ACCOUNT') {
+    if (
+      user.password_hash === 'OAUTH_EXTERNAL_ACCOUNT' ||
+      user.password_hash === GOOGLE_PASSWORD_MARKER
+    ) {
       throw new Error(
-        'This account does not have a password set. Use the configured identity provider or reset your password.'
+        'This account uses Google sign-in. Please continue with Google.'
       );
     }
 
@@ -188,5 +143,128 @@ export const authService = {
     }
 
     return toAuthResponse(user);
+  },
+
+  /**
+   * This method is called only after authController has verified
+   * Google's signed ID token and confirmed the email is verified.
+   */
+  loginOrRegisterWithGoogle: async (input: {
+    googleSub: string;
+    email: string;
+    name: string;
+    picture?: string;
+  }): Promise<AuthResponse> => {
+    const email = input.email.trim().toLowerCase();
+
+    if (!input.googleSub || !email || !input.name.trim()) {
+      throw new Error(
+        'Google did not return the required account information.'
+      );
+    }
+
+    const existing = await pool.query(
+      `SELECT id, name, email, role, image, google_sub
+       FROM users
+       WHERE google_sub = $1 OR LOWER(email) = $2
+       LIMIT 2`,
+      [input.googleSub, email]
+    );
+
+    if (existing.rows.length > 1) {
+      throw new Error(
+        'More than one La Villa account matches this Google email. Please contact support.'
+      );
+    }
+
+    if (existing.rows.length === 1) {
+      const user = existing.rows[0] as DatabaseUser & {
+        google_sub: string | null;
+      };
+
+      if (user.google_sub && user.google_sub !== input.googleSub) {
+        throw new Error(
+          'This email is already linked to a different Google account. Please contact support.'
+        );
+      }
+
+      const updated = await pool.query(
+        `UPDATE users
+         SET google_sub = $1,
+             image = COALESCE(NULLIF(image, ''), $2),
+             name = CASE
+               WHEN name IS NULL OR BTRIM(name) = '' THEN $3
+               ELSE name
+             END,
+             updated_at = NOW()
+         WHERE id = $4
+         RETURNING id, name, email, role, image`,
+        [
+          input.googleSub,
+          input.picture ?? null,
+          input.name.trim(),
+          user.id,
+        ]
+      );
+
+      return toAuthResponse(updated.rows[0] as DatabaseUser);
+    }
+
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO users
+           (name, email, password_hash, role, image, google_sub)
+         VALUES ($1, $2, $3, 'USER', $4, $5)
+         RETURNING id, name, email, role, image`,
+        [
+          input.name.trim(),
+          email,
+          GOOGLE_PASSWORD_MARKER,
+          input.picture ?? null,
+          input.googleSub,
+        ]
+      );
+
+      return toAuthResponse(inserted.rows[0] as DatabaseUser);
+    } catch (error: unknown) {
+      // Handle simultaneous first-time sign-ins for the same Google account.
+      const code = (error as { code?: string })?.code;
+
+      if (code !== '23505') {
+        throw error;
+      }
+
+      const racedUser = await pool.query(
+        `SELECT id, name, email, role, image, google_sub
+         FROM users
+         WHERE google_sub = $1 OR LOWER(email) = $2
+         LIMIT 2`,
+        [input.googleSub, email]
+      );
+
+      if (racedUser.rows.length !== 1) {
+        throw error;
+      }
+
+      const user = racedUser.rows[0] as DatabaseUser & {
+        google_sub: string | null;
+      };
+
+      if (user.google_sub && user.google_sub !== input.googleSub) {
+        throw error;
+      }
+
+      const linked = await pool.query(
+        `UPDATE users
+         SET google_sub = $1,
+             image = COALESCE(NULLIF(image, ''), $2),
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING id, name, email, role, image`,
+        [input.googleSub, input.picture ?? null, user.id]
+      );
+
+      return toAuthResponse(linked.rows[0] as DatabaseUser);
+    }
   },
 };

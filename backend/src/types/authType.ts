@@ -1,24 +1,18 @@
 export type UserRole = 'USER' | 'ADMIN';
 
-export interface OAuthLoginInput {
-  email: string;
-  name?: string;
-  avatar?: string;
-}
-
 export interface RegisterInput {
   name: string;
   email: string;
-  password_hash: string; 
+  password_hash: string;
 }
 
 export interface LoginInput {
   email: string;
-  password_raw: string; 
+  password_raw: string;
 }
 
 export interface TokenPayload {
-  id: string; 
+  id: string;
   email: string;
   role: UserRole;
 }
