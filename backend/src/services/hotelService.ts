@@ -86,7 +86,7 @@ export class HotelService {
       )
       VALUES (
         $1, $2, $3, $4, $5, $6,
-        $7::jsonb, $8, $9, $10, $11
+        $7::text[], $8::text[], $9, $10, $11::text[]
       )
       RETURNING *`,
       [
@@ -96,7 +96,7 @@ export class HotelService {
         dto.description,
         dto.starRating,
         dto.status,
-        JSON.stringify(dto.facilities),
+        dto.facilities,
         dto.policies,
         dto.latitude,
         dto.longitude,
@@ -119,11 +119,12 @@ export class HotelService {
            description = $4,
            star_rating = $5,
            status = $6,
-           facilities = $7::jsonb,
-           policies = $8,
+           facilities = $7::text[],
+           policies = $8::text[],
            latitude = $9,
            longitude = $10,
-           images = $11
+           images = $11::text[],
+           updated_at = NOW()
        WHERE id = $12
        RETURNING *`,
       [
@@ -133,7 +134,7 @@ export class HotelService {
         dto.description,
         dto.starRating,
         dto.status,
-        JSON.stringify(dto.facilities),
+        dto.facilities,
         dto.policies,
         dto.latitude,
         dto.longitude,
@@ -169,7 +170,6 @@ export class HotelService {
         return false;
       }
 
-      // Protect accommodations that already have reservations.
       const reservationCheck = await client.query(
         `SELECT r.id
          FROM reservations r
