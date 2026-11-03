@@ -23,7 +23,6 @@ interface AuthState {
   error: string | null;
 }
 
-// Check both possible storage keys to ensure robust token retrieval
 const savedToken =
   localStorage.getItem('lavilla_token') ||
   localStorage.getItem('token');
@@ -40,14 +39,17 @@ async function requestAuth(
   endpoint: 'register' | 'login',
   body: Record<string, string>
 ): Promise<AuthResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/${endpoint}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/auth/${endpoint}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    }
+  );
 
   const contentType = response.headers.get('content-type') || '';
 
@@ -89,7 +91,9 @@ export const registerUser = createAsyncThunk<
       });
     } catch (error) {
       return rejectWithValue(
-        error instanceof Error ? error.message : 'Registration failed.'
+        error instanceof Error
+          ? error.message
+          : 'Registration failed.'
       );
     }
   }
@@ -115,9 +119,64 @@ export const loginUser = createAsyncThunk<
   }
 );
 
+export const googleLogin = createAsyncThunk<
+  AuthResponse,
+  string,
+  { rejectValue: string }
+>(
+  'auth/googleLogin',
+  async (credential, { rejectWithValue }) => {
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/auth/google`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({ credential }),
+        }
+      );
+
+      const contentType =
+        response.headers.get('content-type') || '';
+
+      if (!contentType.includes('application/json')) {
+        throw new Error(
+          `The server returned a non-JSON response (${response.status}). Check your backend API URL.`
+        );
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || data.message || 'Google sign-in failed.'
+        );
+      }
+
+      if (!data.user || !data.token) {
+        throw new Error(
+          'The server response is missing the user or authentication token.'
+        );
+      }
+
+      return data as AuthResponse;
+    } catch (error) {
+      return rejectWithValue(
+        error instanceof Error
+          ? error.message
+          : 'Google sign-in failed.'
+      );
+    }
+  }
+);
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
+
   reducers: {
     logout: (state) => {
       state.user = null;
@@ -136,7 +195,7 @@ const authSlice = createSlice({
 
   extraReducers: (builder) => {
     builder
-      // Registration: create the account, but do not sign the user in.
+      // Registration.
       .addCase(registerUser.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -148,10 +207,12 @@ const authSlice = createSlice({
       .addCase(registerUser.rejected, (state, action) => {
         state.loading = false;
         state.error =
-          action.payload || action.error.message || 'Registration failed.';
+          action.payload ||
+          action.error.message ||
+          'Registration failed.';
       })
 
-      // Login: authenticate and save the token.
+      // Email and password login.
       .addCase(loginUser.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -162,16 +223,47 @@ const authSlice = createSlice({
         state.token = action.payload.token;
         state.isAuthenticated = true;
 
-        localStorage.setItem('lavilla_token', action.payload.token);
+        localStorage.setItem(
+          'lavilla_token',
+          action.payload.token
+        );
         localStorage.setItem('token', action.payload.token);
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.loading = false;
         state.error =
-          action.payload || action.error.message || 'Login failed.';
+          action.payload ||
+          action.error.message ||
+          'Login failed.';
+      })
+
+      // Google login and registration.
+      .addCase(googleLogin.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(googleLogin.fulfilled, (state, action) => {
+        state.loading = false;
+        state.user = action.payload.user;
+        state.token = action.payload.token;
+        state.isAuthenticated = true;
+
+        localStorage.setItem(
+          'lavilla_token',
+          action.payload.token
+        );
+        localStorage.setItem('token', action.payload.token);
+      })
+      .addCase(googleLogin.rejected, (state, action) => {
+        state.loading = false;
+        state.error =
+          action.payload ||
+          action.error.message ||
+          'Google sign-in failed.';
       });
   },
 });
 
 export const { logout, clearAuthError } = authSlice.actions;
+
 export default authSlice.reducer;

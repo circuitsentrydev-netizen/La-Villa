@@ -116,3 +116,18 @@
     flex-direction: column;
   }
 }
+
+.site-footer-legal a {
+  color: #d9e6df;
+  text-decoration: none;
+}
+
+.site-footer-legal a:hover {
+  color: #9fd36a;
+  text-decoration: underline;
+}
+
+.site-footer-legal a:focus-visible {
+  outline: 2px solid #9fd36a;
+  outline-offset: 3px;
+}
