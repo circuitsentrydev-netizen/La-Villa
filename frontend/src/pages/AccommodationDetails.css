@@ -318,7 +318,6 @@
   top: 0;
   left: 0;
   color: var(--lv-green);
-  content: "✓";
   font-weight: 800;
 }
 
