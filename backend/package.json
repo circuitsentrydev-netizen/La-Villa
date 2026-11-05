@@ -22,6 +22,7 @@
     "google-auth-library": "^11.3.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.4.0",
+    "nodemailer": "^10.3.1",
     "pg": "^8.23.1",
     "save-dev": "^0.0.1-security",
     "tsx": "^4.23.15",
@@ -32,6 +33,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.6",
+    "@types/nodemailer": "^8.0.2",
     "nodemon": "^3.1.14"
   }
 }
