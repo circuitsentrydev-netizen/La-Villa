@@ -3,9 +3,11 @@ import { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { ReservationService } from "../services/reservationService";
 import { PaystackService } from "../services/paystackService";
+import { EmailService } from "../services/emailService";
 
 const reservationService = new ReservationService();
 const paystackService = new PaystackService();
+const emailService = new EmailService();
 
 const allowedStatuses = [
   "Pending",
@@ -15,7 +17,10 @@ const allowedStatuses = [
 ];
 
 const isValidDate = (value: unknown): value is string => {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(value)
+  ) {
     return false;
   }
 
@@ -45,6 +50,14 @@ const isValidUuid = (value: unknown): value is string =>
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Unknown error";
+
+const formatEmailDate = (value: unknown): string => {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  return String(value ?? "").slice(0, 10);
+};
 
 /**
  * Create a reservation and initialize Paystack checkout.
@@ -120,7 +133,10 @@ export const createReservation = async (
       return;
     }
 
-    if (!isValidDate(check_in_date) || !isValidDate(check_out_date)) {
+    if (
+      !isValidDate(check_in_date) ||
+      !isValidDate(check_out_date)
+    ) {
       res.status(400).json({
         message: "Enter valid check-in and check-out dates.",
       });
@@ -410,10 +426,14 @@ export const verifyPayment = async (
       return;
     }
 
-    const transactionStatus = String(verified.status ?? "").toLowerCase();
+    const transactionStatus = String(
+      verified.status ?? ""
+    ).toLowerCase();
 
     if (transactionStatus !== "success") {
-      if (["failed", "abandoned", "reversed"].includes(transactionStatus)) {
+      if (
+        ["failed", "abandoned", "reversed"].includes(transactionStatus)
+      ) {
         await reservationService.markPaymentFailed(reference);
 
         res.status(200).json({
@@ -436,7 +456,9 @@ export const verifyPayment = async (
 
     const expectedAmountMinor = Number(payment.amount_minor);
     const verifiedAmountMinor = Number(verified.amount);
-    const verifiedCurrency = String(verified.currency ?? "").toUpperCase();
+    const verifiedCurrency = String(
+      verified.currency ?? ""
+    ).toUpperCase();
 
     if (
       !Number.isSafeInteger(expectedAmountMinor) ||
@@ -466,6 +488,57 @@ export const verifyPayment = async (
       verifiedCurrency
     );
 
+    // Emails are sent only when this request performs the first
+    // successful transition to Paid. Repeated verification will not
+    // send another receipt or admin alert.
+    if (!confirmed.alreadyPaid) {
+      const emailData = {
+        customerName:
+          confirmed.customer_name ||
+          confirmed.guest_name ||
+          "La Villa customer",
+        customerEmail: confirmed.customer_email,
+        accommodationName: confirmed.accommodation_name,
+        reservationCode: confirmed.reservation_code,
+        paymentReference: reference,
+        checkInDate: formatEmailDate(confirmed.check_in_date),
+        checkOutDate: formatEmailDate(confirmed.check_out_date),
+        amount: Number(confirmed.amount_minor) / 100,
+        currency: "ZAR",
+      };
+
+      if (emailData.customerEmail) {
+        try {
+          await emailService.sendPaymentReceipt(emailData);
+          console.log(
+            `Payment receipt email sent for reservation ${confirmed.reservation_code}.`
+          );
+        } catch (emailError) {
+          console.error(
+            "Payment was confirmed, but the customer receipt email could not be sent:",
+            emailError
+          );
+        }
+      } else {
+        console.error(
+          "Payment was confirmed, but the customer email address was missing:",
+          confirmed.reservation_code
+        );
+      }
+
+      try {
+        await emailService.sendAdminPaymentAlert(emailData);
+        console.log(
+          `Admin payment alert sent for reservation ${confirmed.reservation_code}.`
+        );
+      } catch (emailError) {
+        console.error(
+          "Payment was confirmed, but the admin alert email could not be sent:",
+          emailError
+        );
+      }
+    }
+
     res.status(200).json({
       message:
         "Your payment has been verified successfully. Your reservation is confirmed.",
@@ -473,7 +546,7 @@ export const verifyPayment = async (
       payment: { status: "Paid" },
       reservation: {
         reservation_code:
-          confirmed?.reservation_code ?? payment.reservation_code,
+          confirmed.reservation_code ?? payment.reservation_code,
         status: "Confirmed",
         payment_status: "Paid",
       },
@@ -497,9 +570,10 @@ export const verifyPayment = async (
       message === "PAYSTACK_CONNECTION_TIMEOUT" ||
       message === "PAYMENT_VERIFICATION_FAILED"
     ) {
-      console.error("Paystack payment verification is temporarily unavailable:", {
-        errorCode: message,
-      });
+      console.error(
+        "Paystack payment verification is temporarily unavailable:",
+        { errorCode: message }
+      );
 
       res.status(502).json({
         error:
@@ -537,7 +611,9 @@ export const getMyReservations = async (
       return;
     }
 
-    const reservations = await reservationService.getUserReservations(user.id);
+    const reservations = await reservationService.getUserReservations(
+      user.id
+    );
 
     res.status(200).json({ reservations });
   } catch (error) {
@@ -649,7 +725,10 @@ export const updateReservationStatus = async (
       return;
     }
 
-    if (typeof status !== "string" || !allowedStatuses.includes(status)) {
+    if (
+      typeof status !== "string" ||
+      !allowedStatuses.includes(status)
+    ) {
       res.status(400).json({
         error: `Status must be one of: ${allowedStatuses.join(", ")}.`,
       });

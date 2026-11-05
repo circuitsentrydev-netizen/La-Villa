@@ -185,6 +185,11 @@ export class ReservationService {
     return result.rows[0] ?? null;
   }
 
+  /**
+   * Confirm a payment only after successful server-side Paystack
+   * verification. The payment, reservation and in-app notifications
+   * are committed together.
+   */
   async confirmPayment(
     reference: string,
     verifiedAmountMinor: number,
@@ -203,11 +208,20 @@ export class ReservationService {
            p.currency,
            p.status AS payment_attempt_status,
            r.reservation_code,
+           r.guest_name,
+           r.user_id,
+           r.check_in_date,
+           r.check_out_date,
            r.total_amount,
            r.status AS reservation_status,
-           r.payment_status
+           r.payment_status,
+           u.name AS customer_name,
+           u.email AS customer_email,
+           a.name AS accommodation_name
          FROM payments p
          INNER JOIN reservations r ON r.id = p.reservation_id
+         INNER JOIN users u ON u.id = r.user_id
+         LEFT JOIN accommodations a ON a.id = r.accommodation_id
          WHERE p.reference = $1
          FOR UPDATE OF p, r`,
         [reference]
@@ -233,9 +247,11 @@ export class ReservationService {
         throw new Error("PAYMENT_AMOUNT_MISMATCH");
       }
 
+      // A repeated verification must not create another notification
+      // or trigger another email.
       if (
-        payment.payment_status === "Paid" &&
-        payment.payment_attempt_status === "Paid"
+        String(payment.payment_status).toLowerCase() === "paid" &&
+        String(payment.payment_attempt_status).toLowerCase() === "paid"
       ) {
         await client.query("COMMIT");
 
@@ -254,7 +270,7 @@ export class ReservationService {
         throw new Error("RESERVATION_NOT_PAYABLE");
       }
 
-      if (payment.payment_status === "Paid") {
+      if (String(payment.payment_status).toLowerCase() === "paid") {
         throw new Error("RESERVATION_ALREADY_PAID");
       }
 
@@ -275,12 +291,70 @@ export class ReservationService {
         [reference, payment.reservation_id]
       );
 
+      const notificationMetadata = JSON.stringify({
+        reference,
+        reservationId: payment.reservation_id,
+        reservationCode: payment.reservation_code,
+        amountMinor: verifiedAmountMinor,
+        currency: "ZAR",
+      });
+
+      // Customer in-app notification.
+      await client.query(
+        `INSERT INTO notifications (
+           user_id, type, title, message, link, metadata
+         )
+         VALUES (
+           $1,
+           'payment_received',
+           'Payment received',
+           $2,
+           '/account',
+           $3::jsonb
+         )`,
+        [
+          payment.user_id,
+          `Your payment for reservation ${payment.reservation_code} has been verified. Your reservation is confirmed.`,
+          notificationMetadata,
+        ]
+      );
+
+      // In-app payment alert for every administrator.
+      await client.query(
+        `INSERT INTO notifications (
+           user_id, type, title, message, link, metadata
+         )
+         SELECT
+           id,
+           'payment_received',
+           'Customer payment received',
+           $1,
+           '/admin/dashboard',
+           $2::jsonb
+         FROM users
+         WHERE UPPER(role) = 'ADMIN'`,
+        [
+          `Payment received for reservation ${payment.reservation_code}.`,
+          notificationMetadata,
+        ]
+      );
+
       await client.query("COMMIT");
 
       return {
         alreadyPaid: false,
         reservationId: payment.reservation_id,
         reservation_code: payment.reservation_code,
+        customer_name: payment.customer_name,
+        customer_email: payment.customer_email,
+        guest_name: payment.guest_name,
+        accommodation_name:
+          payment.accommodation_name || "La Villa accommodation",
+        check_in_date: payment.check_in_date,
+        check_out_date: payment.check_out_date,
+        amount_minor: verifiedAmountMinor,
+        currency: "ZAR",
+        payment_reference: reference,
       };
     } catch (error) {
       try {
@@ -380,8 +454,6 @@ export class ReservationService {
 
       const reservation = result.rows[0];
 
-      // Return the same error for another user's reservation
-      // so its existence is not disclosed.
       if (reservation.user_id !== userId) {
         throw new Error("RESERVATION_NOT_FOUND");
       }
