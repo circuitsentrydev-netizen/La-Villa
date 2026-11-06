@@ -1,4 +1,3 @@
-
 import { Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { ReservationService } from "../services/reservationService";
@@ -568,6 +567,7 @@ export const verifyPayment = async (
 
     if (
       message === "PAYSTACK_CONNECTION_TIMEOUT" ||
+      message === "PAYSTACK_CONNECTION_FAILED" ||
       message === "PAYMENT_VERIFICATION_FAILED"
     ) {
       console.error(
