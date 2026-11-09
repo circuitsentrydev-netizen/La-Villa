@@ -3,10 +3,12 @@ import { randomBytes } from "crypto";
 import { ReservationService } from "../services/reservationService";
 import { PaystackService } from "../services/paystackService";
 import { EmailService } from "../services/emailService";
+import { NotificationService } from "../services/notificationService";
 
 const reservationService = new ReservationService();
 const paystackService = new PaystackService();
 const emailService = new EmailService();
+const notificationService = new NotificationService();
 
 const allowedStatuses = [
   "Pending",
@@ -56,6 +58,20 @@ const formatEmailDate = (value: unknown): string => {
   }
 
   return String(value ?? "").slice(0, 10);
+};
+
+/**
+ * Notifications must never interrupt reservation or payment processing.
+ */
+const safelyCreateNotification = async (
+  label: string,
+  action: () => Promise<unknown>
+): Promise<void> => {
+  try {
+    await action();
+  } catch (error) {
+    console.error(`${label} notification could not be created:`, error);
+  }
 };
 
 /**
@@ -167,6 +183,51 @@ export const createReservation = async (
     });
 
     reservationCreated = true;
+
+    // Notify the customer that the reservation is awaiting payment.
+    await safelyCreateNotification(
+      "Customer reservation",
+      () =>
+        notificationService.create({
+          userId: user.id,
+          type: "RESERVATION_CREATED",
+          title: "Reservation created",
+          message: `Your reservation${reservation.reservation_code ? ` (${reservation.reservation_code})` : ""} has been created. Complete your payment to confirm your stay.`,
+          link: "/reservations",
+          metadata: {
+            reservationId: reservation.id,
+            reservationCode: reservation.reservation_code ?? null,
+            accommodationId: accommodation_id,
+            checkInDate: check_in_date,
+            checkOutDate: check_out_date,
+            paymentStatus: "Pending",
+          },
+        })
+    );
+
+    // Notify active administrators about the new reservation.
+    await safelyCreateNotification(
+      "Administrator new reservation",
+      () =>
+        notificationService.createForAdmins({
+          type: "NEW_RESERVATION",
+          title: "New reservation received",
+          message: `A customer has created reservation${reservation.reservation_code ? ` ${reservation.reservation_code}` : ""}. Payment is awaiting completion.`,
+          link: "/admin/reservations",
+          metadata: {
+            reservationId: reservation.id,
+            reservationCode: reservation.reservation_code ?? null,
+            customerId: user.id,
+            customerEmail: email,
+            accommodationId: accommodation_id,
+            guestName: guest_name.trim(),
+            guestCount,
+            checkInDate: check_in_date,
+            checkOutDate: check_out_date,
+            paymentStatus: "Pending",
+          },
+        })
+    );
 
     const totalAmount = Number(reservation.total_amount);
     const amountMinor = Math.round(totalAmount * 100);
@@ -487,9 +548,8 @@ export const verifyPayment = async (
       verifiedCurrency
     );
 
-    // Emails are sent only when this request performs the first
-    // successful transition to Paid. Repeated verification will not
-    // send another receipt or admin alert.
+    // Notifications and emails are sent only on the first successful
+    // transition to Paid. Repeated verification will not duplicate them.
     if (!confirmed.alreadyPaid) {
       const emailData = {
         customerName:
@@ -505,6 +565,56 @@ export const verifyPayment = async (
         amount: Number(confirmed.amount_minor) / 100,
         currency: "ZAR",
       };
+
+      const amountLabel = new Intl.NumberFormat("en-ZA", {
+        style: "currency",
+        currency: "ZAR",
+      }).format(emailData.amount);
+
+      await safelyCreateNotification(
+        "Customer payment confirmation",
+        () =>
+          notificationService.create({
+            userId: user.id,
+            type: "PAYMENT_SUCCESSFUL",
+            title: "Payment successful",
+            message: `Your payment of ${amountLabel} for reservation ${confirmed.reservation_code} has been verified. Your reservation is confirmed.`,
+            link: "/reservations",
+            metadata: {
+              reservationCode: confirmed.reservation_code,
+              paymentReference: reference,
+              amount: emailData.amount,
+              currency: "ZAR",
+              paymentStatus: "Paid",
+              reservationStatus: "Confirmed",
+              accommodationName: confirmed.accommodation_name ?? null,
+              checkInDate: emailData.checkInDate,
+              checkOutDate: emailData.checkOutDate,
+            },
+          })
+      );
+
+      await safelyCreateNotification(
+        "Administrator payment confirmation",
+        () =>
+          notificationService.createForAdmins({
+            type: "PAYMENT_SUCCESSFUL",
+            title: "Reservation payment received",
+            message: `Payment of ${amountLabel} has been verified for reservation ${confirmed.reservation_code}.`,
+            link: "/admin/reservations",
+            metadata: {
+              reservationCode: confirmed.reservation_code,
+              paymentReference: reference,
+              customerEmail: confirmed.customer_email ?? null,
+              customerName: emailData.customerName,
+              accommodationName: confirmed.accommodation_name ?? null,
+              amount: emailData.amount,
+              currency: "ZAR",
+              paymentStatus: "Paid",
+              reservationStatus: "Confirmed",
+            },
+          })
+      );
 
       if (emailData.customerEmail) {
         try {
