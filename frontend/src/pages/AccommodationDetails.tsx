@@ -977,10 +977,10 @@ const directionsUrl= `https://www.google.com/maps/dir/?api=1&destination=${encod
       </section>
 
 
-      <footer className="stay-footer">
+      {/* <footer className="stay-footer">
         <span>LA VILLA</span>
         <p>Thoughtful stays. Memorable experiences.</p>
-      </footer>
+      </footer> */}
     </main>
   );
 }
