@@ -1,1082 +1,1209 @@
-
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config/api";
-import { getImageUrl } from "../utils/imageUrl";
-import "./AccommodationDetails.css";
+import { logout } from "../features/auth/authSlice";
+import type { RootState } from "../app/store";
+import "./AdminDashboard.css";
 
-interface Room {
-  id: string | number;
-  room_type_name: string;
-  total_capacity: number;
-  nightly_rate: number;
-}
-
-interface Stay {
+interface Accommodation {
   id: string;
   name: string;
-  description: string;
   address: string;
-  starRating: number;
-  nightlyRate: number;
-  images: string[];
-  facilities: string[];
-  policies: string[];
-  latitude: number | null;
-  longitude: number | null;
+  price_per_night: string | number;
+  star_rating: number;
+  status: string;
 }
 
-interface Review {
+interface AdminUser {
   id: string;
-  user_id: string;
-  accommodation_id: string;
-  rating: number;
-  comment: string | null;
+  name: string;
+  email: string;
+  avatar?: string | null;
+  role: "ADMIN" | "USER" | string;
+  is_active: boolean;
   created_at: string;
 }
 
-interface ReviewSummary {
-  accommodation_id: string;
-  average_rating: number;
-  review_count: number;
-}
+type DashboardTab =
+  | "overview"
+  | "accommodations"
+  | "customers"
+  | "administrators"
+  | "profile";
 
-interface ReviewListResponse {
-  reviews?: Review[];
-  summary?: ReviewSummary;
-  message?: string;
-  error?: string;
-}
+const token = () =>
+  localStorage.getItem("lavilla_token") || localStorage.getItem("token");
 
-interface SingleReviewResponse {
-  review?: Review | null;
-  message?: string;
-  error?: string;
-}
-
-const list = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value.filter(Boolean).map(String);
-  }
-
-  if (typeof value !== "string" || !value.trim()) {
-    return [];
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(value);
-
-    if (Array.isArray(parsed)) {
-      return parsed.filter(Boolean).map(String);
-    }
-  } catch {
-    // Continue with comma-separated values.
-  }
-
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
+const authHeaders = (): Record<string, string> => {
+  const activeToken = token();
+  return activeToken
+    ? { Authorization: `Bearer ${activeToken}` }
+    : {};
 };
 
-const getToken = (): string | null =>
-  localStorage.getItem("lavilla_token") ||
-  localStorage.getItem("token");
+const money = (price: string | number) =>
+  new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+    maximumFractionDigits: 0,
+  }).format(Number(price) || 0);
 
-const getErrorMessage = (
-  data: { message?: string; error?: string },
+const getErrorMessage = async (
+  response: Response,
   fallback: string
-): string => data.message || data.error || fallback;
-
-const formatDate = (value: string): string => {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Recently";
+): Promise<string> => {
+  try {
+    const data = await response.json();
+    return data?.message || data?.error || fallback;
+  } catch {
+    return fallback;
   }
+};
 
-  return date.toLocaleDateString(undefined, {
+const formatDate = (value: string) => {
+  if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("en-ZA", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  });
+  }).format(date);
 };
 
-async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-
-  const copied = document.execCommand("copy");
-  document.body.removeChild(textarea);
-
-  if (!copied) {
-    throw new Error("Unable to copy the link. Please copy it manually.");
-  }
-}
-
-function StarDisplay({
-  rating,
-  size = 20,
-}: {
-  rating: number;
-  size?: number;
-}) {
-  return (
-    <span
-      className="review-stars"
-      aria-label={`${rating} out of 5 stars`}
-      style={{ fontSize: size }}
-    >
-      {[1, 2, 3, 4, 5].map((star) => (
-        <span
-          key={star}
-          className={star <= Math.round(rating) ? "star-filled" : "star-empty"}
-        >
-          ★
-        </span>
-      ))}
-    </span>
-  );
-}
-
-function StarPicker({
-  rating,
-  onChange,
-}: {
-  rating: number;
-  onChange: (rating: number) => void;
-}) {
-  return (
-    <div className="review-star-picker" role="radiogroup" aria-label="Your rating">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <button
-          key={star}
-          type="button"
-          role="radio"
-          aria-checked={rating === star}
-          aria-label={`${star} ${star === 1 ? "star" : "stars"}`}
-          className={star <= rating ? "picker-star selected" : "picker-star"}
-          onClick={() => onChange(star)}
-        >
-          ★
-        </button>
-      ))}
-      <span className="rating-choice">
-        {rating > 0 ? `${rating} / 5` : "Choose a rating"}
-      </span>
-    </div>
-  );
-}
-
-export default function AccommodationDetails() {
+export default function AdminDashboard() {
   const navigate = useNavigate();
-  const { accommodationId } = useParams();
+  const dispatch = useDispatch();
+  const user = useSelector((state: RootState) => state.auth?.user);
 
-  const [stay, setStay] = useState<Stay | null>(null);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [tab, setTab] = useState<DashboardTab>("overview");
+  const [hotels, setHotels] = useState<Accommodation[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loadingHotels, setLoadingHotels] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [savingAdmin, setSavingAdmin] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState("");
   const [error, setError] = useState("");
-  const [roomError, setRoomError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [summary, setSummary] = useState<ReviewSummary>({
-    accommodation_id: "",
-    average_rating: 0,
-    review_count: 0,
+  const [adminForm, setAdminForm] = useState({
+    name: "",
+    email: "",
+    password: "",
   });
-  const [reviewsLoading, setReviewsLoading] = useState(true);
-  const [reviewError, setReviewError] = useState("");
-  const [reviewMessage, setReviewMessage] = useState("");
 
-  const [myReview, setMyReview] = useState<Review | null>(null);
-  const [rating, setRating] = useState(0);
-  const [comment, setComment] = useState("");
-  const [editingReview, setEditingReview] = useState(false);
-  const [savingReview, setSavingReview] = useState(false);
-  const [deletingReview, setDeletingReview] = useState(false);
+  const currentUserName =
+    user && "name" in user
+      ? String(user.name || "Administrator")
+      : "Administrator";
 
-  // Sharing state.
-  const [shareMessage, setShareMessage] = useState("");
-  const [sharing, setSharing] = useState(false);
+  const currentUserEmail =
+    user && "email" in user ? String(user.email || "") : "";
 
-  const accommodationUrl = stay
-    ? `${window.location.origin}/accommodations/${encodeURIComponent(stay.id)}`
-    : "";
+  const currentUserId =
+    user && "id" in user ? String(user.id || "") : "";
 
-  const shareText = stay
-    ? `Discover ${stay.name} on La Villa Lekker Stays.\n\n${stay.address}\n\n${stay.description || "Explore this accommodation and make your reservation."}`
-    : "";
-
-  const shareAccommodation = async () => {
-    if (!stay) return;
-
-    setShareMessage("");
-    setSharing(true);
+  const fetchHotels = useCallback(async () => {
+    setLoadingHotels(true);
 
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: stay.name,
-          text: shareText,
-          url: accommodationUrl,
-        });
-        setShareMessage("Sharing menu opened.");
-      } else {
-        await copyText(`${shareText}\n\nView accommodation: ${accommodationUrl}`);
-        setShareMessage("Accommodation details and link copied.");
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        return;
-      }
-
-      setShareMessage(
-        err instanceof Error
-          ? err.message
-          : "Unable to share this accommodation."
-      );
-    } finally {
-      setSharing(false);
-    }
-  };
-
-  const copyAccommodationLink = async () => {
-    if (!stay) return;
-
-    try {
-      await copyText(accommodationUrl);
-      setShareMessage("Accommodation link copied successfully.");
-    } catch (err) {
-      setShareMessage(
-        err instanceof Error ? err.message : "Unable to copy the link."
-      );
-    }
-  };
-
-  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(
-    `${shareText}\n\nView accommodation: ${accommodationUrl}`
-  )}`;
-
-  const loadReviews = useCallback(async () => {
-    if (!accommodationId) return;
-
-    setReviewsLoading(true);
-    setReviewError("");
-
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/reviews/accommodation/${encodeURIComponent(accommodationId)}`,
-        { headers: { Accept: "application/json" } }
-      );
-
-      const data: ReviewListResponse = await response.json().catch(() => ({}));
+      const response = await fetch(`${API_BASE_URL}/accommodations`, {
+        headers: authHeaders(),
+      });
 
       if (!response.ok) {
         throw new Error(
-          getErrorMessage(data, "Unable to load accommodation reviews.")
+          await getErrorMessage(
+            response,
+            "Failed to load accommodations."
+          )
         );
       }
 
-      setReviews(Array.isArray(data.reviews) ? data.reviews : []);
-      setSummary(
-        data.summary ?? {
-          accommodation_id: accommodationId,
-          average_rating: 0,
-          review_count: 0,
-        }
+      const data = await response.json();
+
+      const accommodationList = Array.isArray(data)
+        ? data
+        : data?.data?.accommodations ||
+          data?.accommodations ||
+          data?.data ||
+          [];
+
+      setHotels(
+        Array.isArray(accommodationList) ? accommodationList : []
       );
     } catch (err) {
-      setReviewError(
+      setError(
         err instanceof Error
           ? err.message
-          : "Unable to load accommodation reviews."
+          : "Unable to load accommodations."
       );
     } finally {
-      setReviewsLoading(false);
+      setLoadingHotels(false);
     }
-  }, [accommodationId]);
+  }, []);
 
-  const loadMyReview = useCallback(async () => {
-    if (!accommodationId) return;
-
-    const token = getToken();
-
-    if (!token) {
-      setMyReview(null);
-      setRating(0);
-      setComment("");
-      setEditingReview(false);
-      return;
-    }
+  const fetchUsers = useCallback(async () => {
+    setLoadingUsers(true);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/reviews/accommodation/${encodeURIComponent(accommodationId)}/mine`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
-        }
-      );
-
-      if (response.status === 401) {
-        setMyReview(null);
-        return;
-      }
-
-      const data: SingleReviewResponse = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, "Unable to load your review."));
-      }
-
-      const existing = data.review ?? null;
-      setMyReview(existing);
-
-      if (existing) {
-        setRating(Number(existing.rating));
-        setComment(existing.comment ?? "");
-      } else {
-        setRating(0);
-        setComment("");
-      }
-
-      setEditingReview(false);
-    } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Unable to load your review."
-      );
-    }
-  }, [accommodationId]);
-
-  useEffect(() => {
-    if (!accommodationId) {
-      setError("No accommodation was selected.");
-      setLoading(false);
-      setRoomsLoading(false);
-      setReviewsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadAccommodation = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await fetch(
-          `${API_BASE_URL}/accommodations/${encodeURIComponent(accommodationId)}`
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            result.message ??
-              result.error ??
-              (response.status === 404
-                ? "Accommodation not found."
-                : "Unable to load accommodation.")
-          );
-        }
-
-        const item = result.accommodation ?? result.data ?? result;
-
-        if (!cancelled) {
-          setStay({
-            id: String(item.id ?? accommodationId),
-            name: item.name ?? item.accommodation ?? "Accommodation",
-            description: item.description ?? "",
-            address: item.address ?? item.location ?? "Location not provided",
-            starRating: Number(item.star_rating ?? item.starRating ?? 0),
-            nightlyRate: Number(
-              item.price_per_night ??
-                item.pricePerNight ??
-                item.nightly_rate ??
-                item.nightlyRate ??
-                0
-            ),
-            images: list(item.images),
-            facilities: list(item.facilities),
-            policies: list(item.policies),
-            latitude: item.latitude == null ? null : Number(item.latitude),
-            longitude: item.longitude == null ? null : Number(item.longitude),
-          });
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Unable to load accommodation."
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    const loadRooms = async () => {
-      try {
-        setRoomsLoading(true);
-        setRoomError("");
-
-        const response = await fetch(
-          `${API_BASE_URL}/accommodations/${encodeURIComponent(accommodationId)}/rooms`
-        );
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            result.message ?? result.error ?? "Unable to load room types."
-          );
-        }
-
-        const records = Array.isArray(result.rooms) ? result.rooms : [];
-
-        if (!cancelled) {
-          setRooms(
-            records.map((room: Record<string, unknown>) => ({
-              id: String(room.id),
-              room_type_name: String(
-                room.room_type_name ?? room.roomTypeName ?? "Room"
-              ),
-              total_capacity: Number(
-                room.total_capacity ?? room.totalCapacity ?? 0
-              ),
-              nightly_rate: Number(
-                room.nightly_rate ?? room.nightlyRate ?? 0
-              ),
-            }))
-          );
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setRoomError(
-            err instanceof Error ? err.message : "Unable to load room types."
-          );
-        }
-      } finally {
-        if (!cancelled) setRoomsLoading(false);
-      }
-    };
-
-    void loadAccommodation();
-    void loadRooms();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [accommodationId]);
-
-  useEffect(() => {
-    void loadReviews();
-    void loadMyReview();
-  }, [loadReviews, loadMyReview]);
-
-  const reserveRoom = () => {
-    if (!stay) return;
-
-    navigate(`/reservations?accommodationId=${encodeURIComponent(stay.id)}`);
-  };
-
-  const startEditing = () => {
-    if (!myReview) return;
-    setRating(Number(myReview.rating));
-    setComment(myReview.comment ?? "");
-    setReviewMessage("");
-    setReviewError("");
-    setEditingReview(true);
-  };
-
-  const cancelEditing = () => {
-    setRating(Number(myReview?.rating ?? 0));
-    setComment(myReview?.comment ?? "");
-    setEditingReview(false);
-    setReviewError("");
-  };
-
-  const submitReview = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    const token = getToken();
-
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    if (!accommodationId) return;
-
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      setReviewError("Please choose a rating from 1 to 5 stars.");
-      return;
-    }
-
-    if (!comment.trim()) {
-      setReviewError("Please write a comment about your stay.");
-      return;
-    }
-
-    if (comment.trim().length > 2000) {
-      setReviewError("Your review must be 2,000 characters or fewer.");
-      return;
-    }
-
-    try {
-      setSavingReview(true);
-      setReviewError("");
-      setReviewMessage("");
-
-      const isUpdating = Boolean(myReview && editingReview);
-      const url = isUpdating
-        ? `${API_BASE_URL}/reviews/${encodeURIComponent(myReview!.id)}`
-        : `${API_BASE_URL}/reviews/accommodation/${encodeURIComponent(accommodationId)}`;
-
-      const response = await fetch(url, {
-        method: isUpdating ? "PUT" : "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          rating,
-          comment: comment.trim(),
-        }),
+      const response = await fetch(`${API_BASE_URL}/admin/users`, {
+        headers: authHeaders(),
       });
 
-      const data: SingleReviewResponse = await response.json().catch(() => ({}));
-
-      if (response.status === 401) {
-        navigate("/login");
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, "Unable to save your review."));
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Failed to load registered users."
+          )
+        );
       }
 
-      setReviewMessage(data.message ?? "Your review has been saved.");
-      setEditingReview(false);
+      const data = await response.json();
+      const userList = Array.isArray(data)
+        ? data
+        : data?.users || data?.data?.users || [];
 
-      await Promise.all([loadReviews(), loadMyReview()]);
+      setUsers(Array.isArray(userList) ? userList : []);
     } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Unable to save your review."
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load registered users."
       );
     } finally {
-      setSavingReview(false);
+      setLoadingUsers(false);
     }
+  }, []);
+
+  useEffect(() => {
+    void fetchHotels();
+    void fetchUsers();
+  }, [fetchHotels, fetchUsers]);
+
+  const customers = useMemo(
+    () =>
+      users.filter(
+        (item) => String(item.role).toUpperCase() === "USER"
+      ),
+    [users]
+  );
+
+  const administrators = useMemo(
+    () =>
+      users.filter(
+        (item) => String(item.role).toUpperCase() === "ADMIN"
+      ),
+    [users]
+  );
+
+  const activeCustomers = customers.filter(
+    (item) => item.is_active
+  ).length;
+
+  const activeAdministrators = administrators.filter(
+    (item) => item.is_active
+  ).length;
+
+  const published = hotels.filter(
+    (hotel) => hotel.status?.toLowerCase() === "published"
+  );
+
+  const clearMessages = () => {
+    setError("");
+    setSuccess("");
   };
 
-  const deleteReview = async () => {
-    const token = getToken();
-
-    if (!token) {
-      navigate("/login");
+  const deleteHotel = async (hotel: Accommodation) => {
+    if (
+      !window.confirm(
+        `Delete "${hotel.name}"? This action cannot be undone.`
+      )
+    ) {
       return;
     }
 
-    if (!myReview) return;
-
-    const confirmed = window.confirm("Are you sure you want to delete your review?");
-    if (!confirmed) return;
+    clearMessages();
 
     try {
-      setDeletingReview(true);
-      setReviewError("");
-      setReviewMessage("");
-
       const response = await fetch(
-        `${API_BASE_URL}/reviews/${encodeURIComponent(myReview.id)}`,
+        `${API_BASE_URL}/accommodations/${encodeURIComponent(hotel.id)}`,
         {
           method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
-          },
+          headers: authHeaders(),
         }
       );
 
-      const data: { message?: string; error?: string } =
-        await response.json().catch(() => ({}));
-
-      if (response.status === 401) {
-        navigate("/login");
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, "Unable to delete your review."));
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Failed to delete accommodation."
+          )
+        );
       }
 
-      setMyReview(null);
-      setRating(0);
-      setComment("");
-      setEditingReview(false);
-      setReviewMessage(data.message ?? "Your review has been deleted.");
-
-      await loadReviews();
+      setSuccess("Accommodation deleted successfully.");
+      await fetchHotels();
     } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Unable to delete your review."
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to delete accommodation."
       );
-    } finally {
-      setDeletingReview(false);
     }
   };
 
-  if (loading) {
-    return (
-      <main className="stay-details">
-        <p className="stay-state">Loading accommodation...</p>
-      </main>
+  const manageRoomTypes = (hotel: Accommodation) => {
+    navigate(
+      `/admin/accommodations/${encodeURIComponent(hotel.id)}/rooms`
     );
-  }
+  };
 
-  if (error || !stay) {
-    return (
-      <main className="stay-details">
-        <div className="stay-state stay-error" role="alert">
-          {error || "Accommodation not found."}
+  const updateAccountStatus = async (account: AdminUser) => {
+    const nextStatus = !account.is_active;
+    const action = nextStatus ? "activate" : "deactivate";
+
+    if (
+      !window.confirm(
+        `Are you sure you want to ${action} ${account.name}'s account?`
+      )
+    ) {
+      return;
+    }
+
+    clearMessages();
+    setUpdatingUserId(account.id);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/users/${encodeURIComponent(
+          account.id
+        )}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ isActive: nextStatus }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Unable to update this account."
+          )
+        );
+      }
+
+      setSuccess(
+        `${account.name}'s account has been ${
+          nextStatus ? "activated" : "deactivated"
+        }.`
+      );
+
+      await fetchUsers();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update account status."
+      );
+    } finally {
+      setUpdatingUserId("");
+    }
+  };
+
+  const createAdministrator = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    clearMessages();
+
+    const name = adminForm.name.trim();
+    const email = adminForm.email.trim().toLowerCase();
+
+    if (!name || !email || !adminForm.password) {
+      setError("Please complete all administrator account fields.");
+      return;
+    }
+
+    if (adminForm.password.length < 8) {
+      setError("The administrator password must contain at least 8 characters.");
+      return;
+    }
+
+    setSavingAdmin(true);
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/admin/users/admins`,
+        {
+          method: "POST",
+          headers: {
+            ...authHeaders(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name,
+            email,
+            password: adminForm.password,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await getErrorMessage(
+            response,
+            "Unable to create administrator account."
+          )
+        );
+      }
+
+      setAdminForm({
+        name: "",
+        email: "",
+        password: "",
+      });
+
+      setSuccess("Administrator account created successfully.");
+      await fetchUsers();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to create administrator account."
+      );
+    } finally {
+      setSavingAdmin(false);
+    }
+  };
+
+  const signOut = () => {
+    localStorage.removeItem("lavilla_token");
+    localStorage.removeItem("token");
+    dispatch(logout());
+    navigate("/admin/login");
+  };
+
+  const refreshCurrentTab = () => {
+    clearMessages();
+
+    if (tab === "accommodations" || tab === "overview") {
+      void fetchHotels();
+    }
+
+    if (
+      tab === "customers" ||
+      tab === "administrators" ||
+      tab === "overview"
+    ) {
+      void fetchUsers();
+    }
+  };
+
+  const tabTitle: Record<DashboardTab, string> = {
+    overview: "Overview",
+    accommodations: "Accommodations Inventory",
+    customers: "Customer Management",
+    administrators: "Administrator Management",
+    profile: "Admin Profile",
+  };
+
+  const tabDescription: Record<DashboardTab, string> = {
+    overview: "Manage your properties and monitor your platform.",
+    accommodations: "Edit, review, and manage your property listings.",
+    customers: "View registered customers and manage account access.",
+    administrators: "Manage administrator accounts and permissions.",
+    profile: "View your administrator account information.",
+  };
+
+  const renderAccountsTable = (
+    accountList: AdminUser[],
+    accountType: "customer" | "administrator"
+  ) => {
+    if (loadingUsers) {
+      return (
+        <div className="admin-inline-state">
+          Loading registered accounts…
         </div>
-        <Link to="/discover" className="stay-back-link">
-          Browse accommodations
-        </Link>
-      </main>
+      );
+    }
+
+    if (accountList.length === 0) {
+      return (
+        <div className="admin-empty-state">
+          <span className="admin-empty-icon">♙</span>
+          <h3>No {accountType === "customer" ? "customers" : "administrators"} found</h3>
+          <p>
+            {accountType === "customer"
+              ? "Registered customer accounts will appear here."
+              : "Administrator accounts will appear here."}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="admin-table-wrap">
+        <table className="admin-table admin-account-table">
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Email address</th>
+              <th>Account type</th>
+              <th>Date registered</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {accountList.map((account) => (
+              <tr key={account.id}>
+                <td>
+                  <div className="admin-account-cell">
+                    {account.avatar ? (
+                      <img
+                        className="admin-account-avatar"
+                        src={account.avatar}
+                        alt=""
+                      />
+                    ) : (
+                      <span className="admin-account-avatar admin-account-avatar-fallback">
+                        {account.name?.charAt(0)?.toUpperCase() || "U"}
+                      </span>
+                    )}
+
+                    <strong>{account.name}</strong>
+                  </div>
+                </td>
+
+                <td>
+                  <span className="admin-address-cell">
+                    {account.email}
+                  </span>
+                </td>
+
+                <td>
+                  <span className="admin-role-pill">
+                    {String(account.role).toUpperCase()}
+                  </span>
+                </td>
+
+                <td>{formatDate(account.created_at)}</td>
+
+                <td>
+                  <span
+                    className={`admin-status-pill ${
+                      account.is_active
+                        ? "status-published"
+                        : "status-other"
+                    }`}
+                  >
+                    <span className="admin-status-indicator" />
+                    {account.is_active ? "Active" : "Inactive"}
+                  </span>
+                </td>
+
+                <td>
+                  <button
+                    type="button"
+                    className={
+                      account.is_active
+                        ? "admin-delete-button"
+                        : "admin-activate-button"
+                    }
+                    disabled={
+                      updatingUserId === account.id ||
+                      (account.id === currentUserId &&
+                        account.is_active)
+                    }
+                    onClick={() => void updateAccountStatus(account)}
+                    title={
+                      account.id === currentUserId
+                        ? "You cannot deactivate your own account."
+                        : undefined
+                    }
+                  >
+                    {updatingUserId === account.id
+                      ? "Updating…"
+                      : account.is_active
+                        ? "Deactivate"
+                        : "Activate"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
-  }
-
-  const hasCoordinates =
-    stay.latitude !== null &&
-    stay.longitude !== null &&
-    Number.isFinite(stay.latitude) &&
-    Number.isFinite(stay.longitude);
-
-  const locationQuery = hasCoordinates
-    ? `${stay.latitude},${stay.longitude}`
-    : `${stay.name}, ${stay.address}`;
-
-  const mapUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(locationQuery)}`;
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(locationQuery)}`;
+  };
 
   return (
-    <main className="stay-details">
-      <Link to="/discover" className="stay-back-link">
-        <span aria-hidden="true">←</span> Back to accommodations
-      </Link>
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <div className="admin-brand">
+          <span className="admin-brand-mark">LV</span>
+          <span className="admin-brand-copy">
+            <strong>La Villa</strong>
+            <small>ADMINISTRATION</small>
+          </span>
+        </div>
 
-      <header className="stay-details-header stay-panel">
-        <div className="stay-heading-row">
-          <div>
-            <span className="stay-eyebrow">LA VILLA · LEKKER STAYS</span>
-            <h1>{stay.name}</h1>
-            <p className="stay-address">{stay.address}</p>
-          </div>
+        <div className="admin-nav-label">WORKSPACE</div>
 
-          <div className="stay-header-rating">
-            <span className="stay-rating-number">
-              {summary.review_count > 0
-                ? summary.average_rating.toFixed(1)
-                : stay.starRating.toFixed(1)}
+        <nav className="admin-nav">
+          <button
+            className={`admin-nav-item ${
+              tab === "overview" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("overview")}
+          >
+            <span className="admin-nav-icon">⌂</span>
+            Overview
+          </button>
+
+          <button
+            className={`admin-nav-item ${
+              tab === "accommodations" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("accommodations")}
+          >
+            <span className="admin-nav-icon">▤</span>
+            Accommodations
+            <span className="admin-nav-count">{hotels.length}</span>
+          </button>
+
+          <button
+            className={`admin-nav-item ${
+              tab === "customers" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("customers")}
+          >
+            <span className="admin-nav-icon">♙</span>
+            Customers
+            <span className="admin-nav-count">{customers.length}</span>
+          </button>
+
+          <button
+            className={`admin-nav-item ${
+              tab === "administrators" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("administrators")}
+          >
+            <span className="admin-nav-icon">♜</span>
+            Administrators
+            <span className="admin-nav-count">
+              {administrators.length}
             </span>
-            <span className="stay-rating-stars">★</span>
-            <span className="stay-rating-caption">
-              {summary.review_count > 0
-                ? `${summary.review_count} ${summary.review_count === 1 ? "review" : "reviews"}`
-                : "Property rating"}
+          </button>
+
+          <button
+            className="admin-nav-item"
+            onClick={() => navigate("/admin/reservations")}
+          >
+            <span className="admin-nav-icon">▣</span>
+            Manage Reservations
+          </button>
+        </nav>
+
+        <div className="admin-sidebar-bottom">
+          <button
+            className={`admin-nav-item admin-profile-link ${
+              tab === "profile" ? "is-active" : ""
+            }`}
+            onClick={() => setTab("profile")}
+          >
+            <span className="admin-nav-icon">⚙</span>
+            Admin Profile
+          </button>
+
+          <div className="admin-user-card">
+            <span className="admin-avatar">
+              {currentUserName.charAt(0).toUpperCase()}
+            </span>
+
+            <span className="admin-user-copy">
+              <strong>{currentUserName}</strong>
+              <small>Administrator</small>
             </span>
           </div>
-        </div>
 
-        <div className="stay-price-row">
-          <div>
-            <span className="stay-price">
-              R{" "}
-              {stay.nightlyRate.toLocaleString("en-ZA", {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
-            <span className="stay-price-unit"> / night</span>
+          <button className="admin-signout" onClick={signOut}>
+            ↪ Sign out
+          </button>
+        </div>
+      </aside>
+
+      <main className="admin-main">
+        <header className="admin-topbar">
+          <div className="admin-breadcrumb">
+            La Villa <span>/</span>{" "}
+            <strong>{tabTitle[tab]}</strong>
           </div>
 
-          <div className="stay-sharing-actions">
-            <button
-              type="button"
-              className="stay-outline-button"
-              onClick={() => void shareAccommodation()}
-              disabled={sharing}
-            >
-              {sharing ? "Sharing..." : "↗ Share"}
-            </button>
-
-            <a
-              className="stay-outline-button"
-              href={whatsappUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              WhatsApp
-            </a>
-
-            <button
-              type="button"
-              className="stay-outline-button"
-              onClick={() => void copyAccommodationLink()}
-            >
-              Copy link
-            </button>
-
-            <button
-              type="button"
-              className="stay-primary-button"
-              onClick={reserveRoom}
-            >
-              Reserve a Room
-            </button>
+          <div className="admin-topbar-right">
+            <span className="admin-status-dot" />
+            Admin workspace
           </div>
-        </div>
+        </header>
 
-        {shareMessage && (
-          <p className="stay-alert stay-alert-success" role="status">
-            {shareMessage}
-          </p>
-        )}
-      </header>
+        <div className="admin-content">
+          <section className="admin-page-heading">
+            <div>
+              <p className="admin-eyebrow">PROPERTY MANAGEMENT</p>
+              <h1>{tab === "overview" ? "Operational Snapshot" : tabTitle[tab]}</h1>
+              <p className="admin-subtitle">{tabDescription[tab]}</p>
+            </div>
 
-      <section className="stay-gallery stay-panel" aria-label="Accommodation photos">
-        {stay.images.length > 0 ? (
-          <div className="stay-gallery-grid">
-            {stay.images.map((image, index) => {
-              const url = getImageUrl(image);
+            {tab === "accommodations" || tab === "overview" ? (
+              <button
+                className="admin-primary-button"
+                onClick={() => navigate("/admin/accommodations/new")}
+              >
+                ＋ Add accommodation
+              </button>
+            ) : null}
+          </section>
 
-              return url ? (
-                <img
-                  key={`${image}-${index}`}
-                  src={url}
-                  alt={`${stay.name} photo ${index + 1}`}
-                  loading={index === 0 ? "eager" : "lazy"}
-                />
-              ) : null;
-            })}
-          </div>
-        ) : (
-          <div className="stay-gallery-empty">
-            <span aria-hidden="true">⌂</span>
-            <p>No photos have been added yet.</p>
-          </div>
-        )}
-      </section>
+          {error && (
+            <div className="admin-alert" role="alert">
+              <span>{error}</span>
+              <button
+                type="button"
+                aria-label="Dismiss error"
+                onClick={() => setError("")}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-      <section className="stay-panel">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">THE EXPERIENCE</span>
-          <h2>About this accommodation</h2>
-        </div>
-        <p className="stay-body-copy">
-          {stay.description || "No description provided."}
-        </p>
-      </section>
+          {success && (
+            <div className="admin-success-alert" role="status">
+              <span>{success}</span>
+              <button
+                type="button"
+                aria-label="Dismiss message"
+                onClick={() => setSuccess("")}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-      <section className="stay-panel">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">YOUR COMFORT</span>
-          <h2>Facilities</h2>
-        </div>
-        {stay.facilities.length > 0 ? (
-          <ul className="stay-feature-list">
-            {stay.facilities.map((facility, index) => (
-              <li key={`${facility}-${index}`}>{facility}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="stay-muted">No facilities listed.</p>
-        )}
-      </section>
+          {tab === "overview" && (
+            <>
+              <section className="admin-stats-grid">
+                <article className="admin-stat-card">
+                  <div className="admin-stat-top">
+                    <span className="admin-stat-label">
+                      Total accommodations
+                    </span>
+                    <span className="admin-stat-icon">⌂</span>
+                  </div>
+                  <strong className="admin-stat-value">
+                    {loadingHotels ? "—" : hotels.length}
+                  </strong>
+                  <span className="admin-stat-note">
+                    All property listings
+                  </span>
+                </article>
 
-      <section className="stay-panel">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">BEFORE YOU ARRIVE</span>
-          <h2>Policies</h2>
-        </div>
-        {stay.policies.length > 0 ? (
-          <ul className="stay-feature-list">
-            {stay.policies.map((policy, index) => (
-              <li key={`${policy}-${index}`}>{policy}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="stay-muted">No policies provided.</p>
-        )}
-      </section>
+                <article className="admin-stat-card">
+                  <div className="admin-stat-top">
+                    <span className="admin-stat-label">
+                      Published listings
+                    </span>
+                    <span className="admin-stat-icon">✓</span>
+                  </div>
+                  <strong className="admin-stat-value">
+                    {loadingHotels ? "—" : published.length}
+                  </strong>
+                  <span className="admin-stat-note">
+                    Visible to customers
+                  </span>
+                </article>
 
-      <section className="stay-panel">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">FIND YOUR ROOM</span>
-          <h2>Available room types</h2>
-        </div>
+                <article className="admin-stat-card">
+                  <div className="admin-stat-top">
+                    <span className="admin-stat-label">
+                      Registered customers
+                    </span>
+                    <span className="admin-stat-icon">♙</span>
+                  </div>
+                  <strong className="admin-stat-value">
+                    {loadingUsers ? "—" : customers.length}
+                  </strong>
+                  <span className="admin-stat-note">
+                    {activeCustomers} active customer accounts
+                  </span>
+                </article>
 
-        {roomsLoading ? (
-          <p className="stay-muted">Loading room types...</p>
-        ) : roomError ? (
-          <p className="stay-alert stay-alert-error" role="alert">{roomError}</p>
-        ) : rooms.length > 0 ? (
-          <div className="room-types-list">
-            {rooms.map((room) => (
-              <article className="room-type-card" key={room.id}>
+                <article className="admin-stat-card">
+                  <div className="admin-stat-top">
+                    <span className="admin-stat-label">
+                      Administrators
+                    </span>
+                    <span className="admin-stat-icon">♜</span>
+                  </div>
+                  <strong className="admin-stat-value">
+                    {loadingUsers ? "—" : administrators.length}
+                  </strong>
+                  <span className="admin-stat-note">
+                    {activeAdministrators} active administrators
+                  </span>
+                </article>
+              </section>
+
+              <section className="admin-panel">
+                <div className="admin-panel-heading">
+                  <div>
+                    <h2>Recent accommodations</h2>
+                    <p>Manage your uploaded property listings.</p>
+                  </div>
+
+                  <button
+                    className="admin-secondary-button"
+                    onClick={() => setTab("accommodations")}
+                  >
+                    View inventory →
+                  </button>
+                </div>
+
+                {loadingHotels ? (
+                  <div className="admin-inline-state">
+                    Loading accommodations…
+                  </div>
+                ) : hotels.length === 0 ? (
+                  <div className="admin-empty-state">
+                    <span className="admin-empty-icon">⌂</span>
+                    <h3>No accommodations found</h3>
+                    <p>Add a property to see it in your inventory.</p>
+                    <button
+                      className="admin-primary-button"
+                      onClick={() =>
+                        navigate("/admin/accommodations/new")
+                      }
+                    >
+                      Add accommodation
+                    </button>
+                  </div>
+                ) : (
+                  <div className="admin-table-wrap">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Accommodation</th>
+                          <th>Address</th>
+                          <th>Rating</th>
+                          <th>Price per night</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hotels.slice(0, 4).map((hotel) => (
+                          <tr key={hotel.id}>
+                            <td>
+                              <div className="admin-table-property">
+                                <span className="admin-table-property-icon">
+                                  ⌂
+                                </span>
+                                <span className="admin-table-property-name">
+                                  {hotel.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td>
+                              <span className="admin-address-cell">
+                                {hotel.address || "—"}
+                              </span>
+                            </td>
+                            <td>
+                              <span className="admin-rating">
+                                ★ {hotel.star_rating ?? "—"}
+                              </span>
+                            </td>
+                            <td>
+                              <strong className="admin-price-cell">
+                                {money(hotel.price_per_night)}
+                              </strong>
+                            </td>
+                            <td>
+                              <span
+                                className={`admin-status-pill ${
+                                  hotel.status?.toLowerCase() === "published"
+                                    ? "status-published"
+                                    : "status-other"
+                                }`}
+                              >
+                                <span className="admin-status-indicator" />
+                                {hotel.status || "Unspecified"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                <div className="admin-panel-footer">
+                  <span>{hotels.length} accommodations</span>
+                  <span>La Villa property management</span>
+                </div>
+              </section>
+            </>
+          )}
+
+          {tab === "accommodations" && (
+            <section className="admin-panel">
+              <div className="admin-panel-heading">
                 <div>
-                  <h3>{room.room_type_name}</h3>
-                  <p>Capacity: {room.total_capacity} guests</p>
-                  <p className="room-type-price">
-                    R{" "}
-                    {room.nightly_rate.toLocaleString("en-ZA", {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}{" "}
-                    <span>/ night</span>
+                  <h2>All accommodations ({hotels.length})</h2>
+                  <p>Edit, review, and manage your property listings.</p>
+                </div>
+                <button
+                  className="admin-secondary-button"
+                  disabled={loadingHotels}
+                  onClick={() => void fetchHotels()}
+                >
+                  {loadingHotels ? "Refreshing…" : "↻ Refresh"}
+                </button>
+              </div>
+
+              {loadingHotels ? (
+                <div className="admin-inline-state">
+                  Loading accommodations…
+                </div>
+              ) : hotels.length === 0 ? (
+                <div className="admin-empty-state">
+                  <span className="admin-empty-icon">⌂</span>
+                  <h3>No accommodations found</h3>
+                  <p>Add a property to see it in your inventory.</p>
+                  <button
+                    className="admin-primary-button"
+                    onClick={() =>
+                      navigate("/admin/accommodations/new")
+                    }
+                  >
+                    Add accommodation
+                  </button>
+                </div>
+              ) : (
+                <div className="admin-table-wrap">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Accommodation</th>
+                        <th>Address</th>
+                        <th>Rating</th>
+                        <th>Price per night</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hotels.map((hotel) => (
+                        <tr key={hotel.id}>
+                          <td>
+                            <div className="admin-table-property">
+                              <span className="admin-table-property-icon">
+                                ⌂
+                              </span>
+                              <span className="admin-table-property-name">
+                                {hotel.name}
+                              </span>
+                            </div>
+                          </td>
+                          <td>
+                            <span className="admin-address-cell">
+                              {hotel.address || "—"}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="admin-rating">
+                              ★ {hotel.star_rating ?? "—"}
+                            </span>
+                          </td>
+                          <td>
+                            <strong className="admin-price-cell">
+                              {money(hotel.price_per_night)}
+                            </strong>
+                          </td>
+                          <td>
+                            <span
+                              className={`admin-status-pill ${
+                                hotel.status?.toLowerCase() === "published"
+                                  ? "status-published"
+                                  : "status-other"
+                              }`}
+                            >
+                              <span className="admin-status-indicator" />
+                              {hotel.status || "Unspecified"}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="admin-row-actions">
+                              <button
+                                type="button"
+                                className="admin-edit-button"
+                                onClick={() =>
+                                  navigate(
+                                    `/admin/accommodations/${encodeURIComponent(
+                                      hotel.id
+                                    )}/edit`
+                                  )
+                                }
+                              >
+                                ✎ Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-room-button"
+                                onClick={() => manageRoomTypes(hotel)}
+                              >
+                                Manage rooms
+                              </button>
+                              <button
+                                type="button"
+                                className="admin-delete-button"
+                                onClick={() => void deleteHotel(hotel)}
+                              >
+                                × Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="admin-panel-footer">
+                <span>{hotels.length} accommodations</span>
+                <span>La Villa property management</span>
+              </div>
+            </section>
+          )}
+
+          {tab === "customers" && (
+            <section className="admin-panel">
+              <div className="admin-panel-heading">
+                <div>
+                  <h2>Registered customers ({customers.length})</h2>
+                  <p>
+                    Activate or deactivate customer access. Deactivated
+                    accounts are retained in your database.
                   </p>
                 </div>
                 <button
-                  type="button"
-                  className="stay-outline-button"
-                  onClick={reserveRoom}
+                  className="admin-secondary-button"
+                  disabled={loadingUsers}
+                  onClick={() => void fetchUsers()}
                 >
-                  Reserve this room
-                </button>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <p className="stay-muted">No room types have been added yet.</p>
-        )}
-      </section>
-
-      <section className="stay-panel stay-reviews-section">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">GUEST EXPERIENCES</span>
-          <h2>Reviews &amp; ratings</h2>
-          <p className="stay-muted">
-            Discover what guests think about {stay.name}.
-          </p>
-        </div>
-
-        <div className="reviews-summary">
-          <div className="reviews-average">
-            <strong>
-              {summary.review_count > 0
-                ? summary.average_rating.toFixed(1)
-                : "—"}
-            </strong>
-            <StarDisplay rating={summary.average_rating} size={19} />
-            <span>
-              {summary.review_count}{" "}
-              {summary.review_count === 1 ? "review" : "reviews"}
-            </span>
-          </div>
-          <p>
-            {summary.review_count > 0
-              ? "Ratings are based on guest reviews."
-              : "Be the first to share your experience."}
-          </p>
-        </div>
-
-        {reviewMessage && (
-          <div className="stay-alert stay-alert-success" role="status">
-            {reviewMessage}
-          </div>
-        )}
-
-        {reviewError && (
-          <div className="stay-alert stay-alert-error" role="alert">
-            {reviewError}
-          </div>
-        )}
-
-        <div className="review-form-card">
-          <h3>
-            {myReview && !editingReview
-              ? "Your review"
-              : myReview
-                ? "Edit your review"
-                : "Share your experience"}
-          </h3>
-
-          {!getToken() ? (
-            <div className="review-signin">
-              <p>Sign in to rate this accommodation and leave a review.</p>
-              <button
-                type="button"
-                className="stay-primary-button"
-                onClick={() => navigate("/login")}
-              >
-                Sign in to review
-              </button>
-            </div>
-          ) : myReview && !editingReview ? (
-            <div className="my-review-card">
-              <div className="review-card-top">
-                <StarDisplay rating={myReview.rating} />
-                <span className="review-date">{formatDate(myReview.created_at)}</span>
-              </div>
-              <p className="review-comment">
-                {myReview.comment || "No written comment provided."}
-              </p>
-              <div className="review-actions">
-                <button type="button" className="stay-outline-button" onClick={startEditing}>
-                  Edit review
-                </button>
-                <button
-                  type="button"
-                  className="stay-danger-button"
-                  disabled={deletingReview}
-                  onClick={() => void deleteReview()}
-                >
-                  {deletingReview ? "Deleting..." : "Delete review"}
+                  {loadingUsers ? "Refreshing…" : "↻ Refresh"}
                 </button>
               </div>
-            </div>
-          ) : (
-            <form onSubmit={submitReview} className="review-form">
-              <label className="review-field-label">Your rating</label>
-              <StarPicker rating={rating} onChange={setRating} />
 
-              <label className="review-field-label" htmlFor="review-comment">
-                Your review
-              </label>
-              <textarea
-                id="review-comment"
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
-                placeholder="Tell other guests about your experience..."
-                rows={5}
-                maxLength={2000}
-                required
-              />
-              <div className="review-character-count">
-                {comment.length}/2000 characters
-              </div>
+              {renderAccountsTable(customers, "customer")}
 
-              <div className="review-actions">
-                <button
-                  type="submit"
-                  className="stay-primary-button"
-                  disabled={savingReview}
-                >
-                  {savingReview
-                    ? "Saving..."
-                    : myReview
-                      ? "Save changes"
-                      : "Submit review"}
-                </button>
-                {myReview && (
-                  <button
-                    type="button"
-                    className="stay-outline-button"
-                    onClick={cancelEditing}
-                    disabled={savingReview}
-                  >
-                    Cancel
-                  </button>
-                )}
+              <div className="admin-panel-footer">
+                <span>{activeCustomers} active customers</span>
+                <span>{customers.length - activeCustomers} inactive</span>
               </div>
-            </form>
+            </section>
           )}
-        </div>
 
-        <div className="reviews-list-heading">
-          <h3>What guests are saying</h3>
-        </div>
-
-        {reviewsLoading ? (
-          <p className="stay-muted">Loading reviews...</p>
-        ) : reviews.length > 0 ? (
-          <div className="reviews-list">
-            {reviews.map((review) => (
-              <article className="review-item" key={review.id}>
-                <div className="review-card-top">
-                  <div className="review-avatar" aria-hidden="true">
-                    {String(review.user_id || "G").slice(0, 1).toUpperCase()}
+          {tab === "administrators" && (
+            <div className="admin-management-layout">
+              <section className="admin-panel">
+                <div className="admin-panel-heading">
+                  <div>
+                    <h2>Administrator accounts ({administrators.length})</h2>
+                    <p>
+                      Manage who has access to the La Villa administration
+                      workspace.
+                    </p>
                   </div>
-                  <div className="review-meta">
-                    <strong>{myReview?.id === review.id ? "You" : "Guest"}</strong>
-                    <span>{formatDate(review.created_at)}</span>
-                  </div>
-                  <StarDisplay rating={Number(review.rating)} size={17} />
+                  <button
+                    className="admin-secondary-button"
+                    disabled={loadingUsers}
+                    onClick={() => void fetchUsers()}
+                  >
+                    {loadingUsers ? "Refreshing…" : "↻ Refresh"}
+                  </button>
                 </div>
-                <p className="review-comment">
-                  {review.comment || "No written comment provided."}
+
+                {renderAccountsTable(administrators, "administrator")}
+
+                <div className="admin-panel-footer">
+                  <span>{activeAdministrators} active administrators</span>
+                  <span>
+                    {administrators.length - activeAdministrators} inactive
+                  </span>
+                </div>
+              </section>
+
+              <section className="admin-panel admin-create-panel">
+                <div className="admin-panel-heading">
+                  <div>
+                    <h2>Add administrator</h2>
+                    <p>
+                      Create an account with administrator access.
+                    </p>
+                  </div>
+                </div>
+
+                <form
+                  className="admin-create-form"
+                  onSubmit={createAdministrator}
+                >
+                  <label htmlFor="admin-name">Full name</label>
+                  <input
+                    id="admin-name"
+                    type="text"
+                    value={adminForm.name}
+                    maxLength={100}
+                    autoComplete="name"
+                    placeholder="Enter full name"
+                    onChange={(event) =>
+                      setAdminForm((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+
+                  <label htmlFor="admin-email">Email address</label>
+                  <input
+                    id="admin-email"
+                    type="email"
+                    value={adminForm.email}
+                    maxLength={254}
+                    autoComplete="email"
+                    placeholder="admin@example.com"
+                    onChange={(event) =>
+                      setAdminForm((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+
+                  <label htmlFor="admin-password">Temporary password</label>
+                  <input
+                    id="admin-password"
+                    type="password"
+                    value={adminForm.password}
+                    minLength={8}
+                    maxLength={72}
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    onChange={(event) =>
+                      setAdminForm((current) => ({
+                        ...current,
+                        password: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+
+                  <p className="admin-form-note">
+                    The new administrator can use these credentials to sign
+                    in. Share the temporary password securely.
+                  </p>
+
+                  <button
+                    className="admin-primary-button admin-create-submit"
+                    type="submit"
+                    disabled={savingAdmin}
+                  >
+                    {savingAdmin
+                      ? "Creating account…"
+                      : "＋ Create administrator"}
+                  </button>
+                </form>
+              </section>
+            </div>
+          )}
+
+          {tab === "profile" && (
+            <section className="admin-panel admin-profile-panel">
+              <div className="admin-panel-heading">
+                <div>
+                  <h2>Administrator profile</h2>
+                  <p>Your currently signed-in administration account.</p>
+                </div>
+              </div>
+
+              <div className="admin-profile-content">
+                <div className="admin-profile-avatar">
+                  {currentUserName.charAt(0).toUpperCase()}
+                </div>
+
+                <div className="admin-profile-details">
+                  <div>
+                    <span>Full name</span>
+                    <strong>{currentUserName}</strong>
+                  </div>
+                  <div>
+                    <span>Email address</span>
+                    <strong>{currentUserEmail || "Not available"}</strong>
+                  </div>
+                  <div>
+                    <span>Account role</span>
+                    <strong>Administrator</strong>
+                  </div>
+                  <div>
+                    <span>Account ID</span>
+                    <strong className="admin-profile-id">
+                      {currentUserId || "Not available"}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="admin-profile-footer">
+                <p>
+                  Profile editing is not enabled here yet. Your account
+                  information is displayed from your current sign-in session.
                 </p>
-              </article>
-            ))}
+                <button
+                  className="admin-secondary-button"
+                  onClick={signOut}
+                >
+                  Sign out
+                </button>
+              </div>
+            </section>
+          )}
+
+          <div className="admin-bottom-actions">
+            <span>La Villa Lekker Stays · Administration</span>
+            <button
+              type="button"
+              className="admin-refresh-link"
+              onClick={refreshCurrentTab}
+              disabled={loadingHotels || loadingUsers}
+            >
+              ↻ Refresh dashboard data
+            </button>
           </div>
-        ) : (
-          <div className="reviews-empty">
-            <span aria-hidden="true">☆</span>
-            <h3>No reviews yet</h3>
-            <p>Be the first guest to rate this accommodation.</p>
-          </div>
-        )}
-      </section>
-
-      <section className="stay-panel stay-location-panel">
-        <div className="stay-section-heading">
-          <span className="stay-eyebrow">GETTING HERE</span>
-          <h2>Location</h2>
         </div>
-
-        <p className="stay-body-copy stay-location-address">
-          {stay.address}
-        </p>
-
-        <div className="stay-map-container">
-          <iframe
-            title={`Map showing ${stay.name} at ${stay.address}`}
-            src={`https://maps.google.com/maps?q=${encodeURIComponent(locationQuery)}&z=16&output=embed`}
-            width="100%"
-            height="400"
-            style={{ border: 0 }}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allowFullScreen
-          />
-        </div>
-
-        <div className="stay-location-actions">
-          <a
-            className="stay-map-link"
-            href={mapUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            View location on Google Maps ↗
-          </a>
-
-          <a
-            className="stay-map-link"
-            href={directionsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Get directions ↗
-          </a>
-        </div>
-      </section>
-
-      <footer className="stay-footer">
-        <span>LA VILLA</span>
-        <p>Thoughtful stays. Memorable experiences.</p>
-      </footer>
-    </main>
+      </main>
+    </div>
   );
 }
