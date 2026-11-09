@@ -1,6 +1,5 @@
-
 import { Request, Response } from "express";
-import {HotelService,CreateAccommodationDTO,CreateRoomInventoryDTO,} from "../services/hotelService";
+import { HotelService,CreateAccommodationDTO,CreateRoomInventoryDTO,} from "../services/hotelService";
 
 const hotelService = new HotelService();
 
@@ -21,6 +20,10 @@ const isDuplicateAccommodationName = (error: unknown): boolean => {
   );
 };
 
+/**
+ * Converts arrays, JSON arrays, PostgreSQL array strings,
+ * and comma-separated strings into normal string arrays.
+ */
 const parseArray = (value: unknown): string[] => {
   if (Array.isArray(value)) {
     return value
@@ -29,13 +32,17 @@ const parseArray = (value: unknown): string[] => {
       .filter(Boolean);
   }
 
-  if (typeof value !== "string" || !value.trim()) return [];
+  if (typeof value !== "string" || !value.trim()) {
+    return [];
+  }
 
   const input = value.trim();
 
+  // JSON array, for example: ["Pool", "Wi-Fi"]
   if (input.startsWith("[")) {
     try {
       const parsed: unknown = JSON.parse(input);
+
       if (Array.isArray(parsed)) {
         return parsed
           .filter((item) => item != null)
@@ -43,36 +50,27 @@ const parseArray = (value: unknown): string[] => {
           .filter(Boolean);
       }
     } catch {
-      // Continue to other formats.
+      // Continue checking other formats.
     }
   }
 
+  // PostgreSQL array string, for example: {"Pool","Wi-Fi"}
   if (input.startsWith("{") && input.endsWith("}")) {
     const inner = input.slice(1, -1).trim();
+
     if (!inner) return [];
 
-    const values =
-      inner.match(/"(?:[^"\\]|\\.)*"|[^,]+/g) ?? [];
-
-    return values
-      .map((item) => {
-        const trimmed = item.trim();
-
-        if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
-          try {
-            return JSON.parse(trimmed) as string;
-          } catch {
-            return trimmed.slice(1, -1);
-          }
-        }
-
-        return trimmed;
-      })
-      .map((item) => item.trim())
+    return inner
+      .split(",")
+      .map((item) => item.trim().replace(/^"(.*)"$/, "$1"))
       .filter(Boolean);
   }
 
-  return input.split(",").map((item) => item.trim()).filter(Boolean);
+  // Single value or comma-separated values.
+  return input
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 };
 
 const imagePaths = (req: Request): string[] =>
@@ -81,23 +79,30 @@ const imagePaths = (req: Request): string[] =>
   );
 
 const existingImages = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
-  if (typeof value !== "string" || !value.trim()) return [];
-
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
-  } catch {
-    // A plain string may be one image path.
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
-  return [value];
+  return parseArray(value);
+};
+
+const isValidationError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) return false;
+
+  return (
+    error.message.startsWith("Accommodation") ||
+    error.message.startsWith("Price per night") ||
+    error.message.startsWith("Star rating") ||
+    error.message.startsWith("Status must")
+  );
 };
 
 function buildDTO(
   body: Record<string, unknown>,
-  images: string[],
-  previousImages: string[] = []
+  images: string[]
 ): CreateAccommodationDTO {
   const name = String(body.name ?? "").trim();
   const address = String(body.address ?? "").trim();
@@ -113,7 +118,11 @@ function buildDTO(
     throw new Error("Price per night must be greater than zero.");
   }
 
-  if (!Number.isFinite(starRating) || starRating < 1 || starRating > 5) {
+  if (
+    !Number.isFinite(starRating) ||
+    starRating < 1 ||
+    starRating > 5
+  ) {
     throw new Error("Star rating must be between 1 and 5.");
   }
 
@@ -123,7 +132,9 @@ function buildDTO(
 
   const numberOrNull = (value: unknown): number | null => {
     if (value === "" || value == null) return null;
+
     const number = Number(value);
+
     return Number.isFinite(number) ? number : null;
   };
 
@@ -138,7 +149,7 @@ function buildDTO(
     policies: parseArray(body.policies),
     latitude: numberOrNull(body.latitude),
     longitude: numberOrNull(body.longitude),
-    images: images.length > 0 ? images : previousImages,
+    images,
   };
 }
 
@@ -149,6 +160,7 @@ const handleError = (
   status = 500
 ): void => {
   console.error(fallback, error);
+
   res.status(status).json({
     message: error instanceof Error ? error.message : fallback,
   });
@@ -159,14 +171,23 @@ export async function getAllAccommodations(
   res: Response
 ): Promise<void> {
   try {
-    const accommodations = await hotelService.getFilteredAccommodations(
-      typeof req.query.search === "string" ? req.query.search : undefined,
-      typeof req.query.status === "string" ? req.query.status : undefined
-    );
+    const accommodations =
+      await hotelService.getFilteredAccommodations(
+        typeof req.query.search === "string"
+          ? req.query.search
+          : undefined,
+        typeof req.query.status === "string"
+          ? req.query.status
+          : undefined
+      );
 
     res.status(200).json({ accommodations });
   } catch (error) {
-    handleError(res, error, "Failed to load accommodations.");
+    handleError(
+      res,
+      error,
+      "Failed to load accommodations."
+    );
   }
 }
 
@@ -175,16 +196,23 @@ export async function getAccommodationById(
   res: Response
 ): Promise<void> {
   try {
-    const accommodation = await hotelService.getAccommodationById(idFrom(req));
+    const accommodation =
+      await hotelService.getAccommodationById(idFrom(req));
 
     if (!accommodation) {
-      res.status(404).json({ message: "Accommodation not found." });
+      res.status(404).json({
+        message: "Accommodation not found.",
+      });
       return;
     }
 
     res.status(200).json({ accommodation });
   } catch (error) {
-    handleError(res, error, "Failed to load accommodation.");
+    handleError(
+      res,
+      error,
+      "Failed to load accommodation."
+    );
   }
 }
 
@@ -193,8 +221,12 @@ export async function createAccommodation(
   res: Response
 ): Promise<void> {
   try {
-    const dto = buildDTO(req.body, imagePaths(req));
-    const accommodation = await hotelService.insertAccommodation(dto);
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const dto = buildDTO(body, imagePaths(req));
+
+    const accommodation =
+      await hotelService.insertAccommodation(dto);
 
     res.status(201).json({
       message: "Accommodation created successfully.",
@@ -209,20 +241,21 @@ export async function createAccommodation(
       return;
     }
 
-    if (
-      error instanceof Error &&
-      (
-        error.message.startsWith("Accommodation") ||
-        error.message.startsWith("Price per night") ||
-        error.message.startsWith("Star rating") ||
-        error.message.startsWith("Status must")
-      )
-    ) {
-      handleError(res, error, "Failed to create accommodation.", 400);
+    if (isValidationError(error)) {
+      handleError(
+        res,
+        error,
+        "Failed to create accommodation.",
+        400
+      );
       return;
     }
 
-    handleError(res, error, "Failed to create accommodation.");
+    handleError(
+      res,
+      error,
+      "Failed to create accommodation."
+    );
   }
 }
 
@@ -232,23 +265,81 @@ export async function updateAccommodation(
 ): Promise<void> {
   try {
     const id = idFrom(req);
-    const existing = await hotelService.getAccommodationById(id);
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    const existing =
+      await hotelService.getAccommodationById(id);
 
     if (!existing) {
-      res.status(404).json({ message: "Accommodation not found." });
+      res.status(404).json({
+        message: "Accommodation not found.",
+      });
       return;
     }
 
-    const dto = buildDTO(
-      req.body,
-      imagePaths(req),
-      existingImages(existing.images)
-    );
+    const oldImages = existingImages(existing.images);
+    const uploadedImages = imagePaths(req);
 
-    const accommodation = await hotelService.updateAccommodation(id, dto);
+    let finalImages: string[];
+
+    /*
+     * If existingImages is supplied by the frontend,
+     * it represents the existing photos the admin wants to keep.
+     *
+     * An empty array means remove all existing photos.
+     * Newly uploaded photos are added to the retained photos.
+     */
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        "existingImages"
+      )
+    ) {
+      const requestedImages = parseArray(body.existingImages);
+
+      // Only allow existing paths belonging to this accommodation.
+      const retainedImages = requestedImages.filter((image) =>
+        oldImages.includes(image)
+      );
+
+      finalImages = [
+        ...new Set([
+          ...retainedImages,
+          ...uploadedImages,
+        ]),
+      ];
+    } else {
+      /*
+       * Backward compatibility:
+       * Older frontend versions do not send existingImages.
+       *
+       * In that case, preserve the old images and append
+       * any newly uploaded images.
+       */
+      const imagesToRemove = parseArray(body.removeImages);
+
+      const retainedImages = oldImages.filter(
+        (image) => !imagesToRemove.includes(image)
+      );
+
+      finalImages = [
+        ...new Set([
+          ...retainedImages,
+          ...uploadedImages,
+        ]),
+      ];
+    }
+
+    const dto = buildDTO(body, finalImages);
+
+    const accommodation =
+      await hotelService.updateAccommodation(id, dto);
 
     if (!accommodation) {
-      res.status(404).json({ message: "Accommodation not found." });
+      res.status(404).json({
+        message: "Accommodation not found.",
+      });
       return;
     }
 
@@ -265,7 +356,21 @@ export async function updateAccommodation(
       return;
     }
 
-    handleError(res, error, "Failed to update accommodation.");
+    if (isValidationError(error)) {
+      handleError(
+        res,
+        error,
+        "Failed to update accommodation.",
+        400
+      );
+      return;
+    }
+
+    handleError(
+      res,
+      error,
+      "Failed to update accommodation."
+    );
   }
 }
 
@@ -274,10 +379,13 @@ export async function deleteAccommodation(
   res: Response
 ): Promise<void> {
   try {
-    const deleted = await hotelService.deleteAccommodation(idFrom(req));
+    const deleted =
+      await hotelService.deleteAccommodation(idFrom(req));
 
     if (!deleted) {
-      res.status(404).json({ message: "Accommodation not found." });
+      res.status(404).json({
+        message: "Accommodation not found.",
+      });
       return;
     }
 
@@ -285,7 +393,12 @@ export async function deleteAccommodation(
       message: "Accommodation deleted successfully.",
     });
   } catch (error) {
-    handleError(res, error, "Failed to delete accommodation.", 409);
+    handleError(
+      res,
+      error,
+      "Failed to delete accommodation.",
+      409
+    );
   }
 }
 
@@ -295,17 +408,24 @@ export async function addRoomInventory(
 ): Promise<void> {
   try {
     const id = idFrom(req);
-    const { roomTypeName, totalCapacity, nightlyRate } = req.body;
+
+    const { roomTypeName, totalCapacity, nightlyRate } =
+      req.body;
+
     const capacity = Number(totalCapacity);
     const rate = Number(nightlyRate);
 
     if (!(await hotelService.getAccommodationById(id))) {
-      res.status(404).json({ message: "Accommodation not found." });
+      res.status(404).json({
+        message: "Accommodation not found.",
+      });
       return;
     }
 
     if (!String(roomTypeName ?? "").trim()) {
-      res.status(400).json({ message: "Room type name is required." });
+      res.status(400).json({
+        message: "Room type name is required.",
+      });
       return;
     }
 
@@ -332,7 +452,11 @@ export async function addRoomInventory(
       room,
     });
   } catch (error) {
-    handleError(res, error, "Failed to add room inventory.");
+    handleError(
+      res,
+      error,
+      "Failed to add room inventory."
+    );
   }
 }
 
@@ -341,10 +465,16 @@ export async function getRoomInventory(
   res: Response
 ): Promise<void> {
   try {
-    const rooms = await hotelService.getRoomInventory(idFrom(req));
+    const rooms =
+      await hotelService.getRoomInventory(idFrom(req));
+
     res.status(200).json({ rooms });
   } catch (error) {
-    handleError(res, error, "Failed to load room inventory.");
+    handleError(
+      res,
+      error,
+      "Failed to load room inventory."
+    );
   }
 }
 
@@ -353,9 +483,15 @@ export async function getDashboardSnapshot(
   res: Response
 ): Promise<void> {
   try {
-    const snapshot = await hotelService.computeDashboardSnapshot();
+    const snapshot =
+      await hotelService.computeDashboardSnapshot();
+
     res.status(200).json({ snapshot });
   } catch (error) {
-    handleError(res, error, "Failed to load dashboard summary.");
+    handleError(
+      res,
+      error,
+      "Failed to load dashboard summary."
+    );
   }
 }
