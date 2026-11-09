@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
@@ -55,9 +56,7 @@ const getToken = (): string | null =>
   localStorage.getItem("token");
 
 const extractImagePaths = (value: unknown): string[] => {
-  if (value === null || value === undefined) {
-    return [];
-  }
+  if (value === null || value === undefined) return [];
 
   if (Array.isArray(value)) {
     return value.flatMap((item) => extractImagePaths(item));
@@ -65,7 +64,6 @@ const extractImagePaths = (value: unknown): string[] => {
 
   if (typeof value === "object") {
     const imageObject = value as Record<string, unknown>;
-
     const possibleKeys = [
       "url",
       "path",
@@ -80,19 +78,14 @@ const extractImagePaths = (value: unknown): string[] => {
     for (const key of possibleKeys) {
       if (imageObject[key]) {
         const result = extractImagePaths(imageObject[key]);
-
-        if (result.length > 0) {
-          return result;
-        }
+        if (result.length > 0) return result;
       }
     }
 
     return [];
   }
 
-  if (typeof value !== "string") {
-    return [];
-  }
+  if (typeof value !== "string") return [];
 
   const cleaned = value.trim();
 
@@ -110,8 +103,7 @@ const extractImagePaths = (value: unknown): string[] => {
     (cleaned.startsWith("{") && cleaned.endsWith("}"))
   ) {
     try {
-      const parsed: unknown = JSON.parse(cleaned);
-      return extractImagePaths(parsed);
+      return extractImagePaths(JSON.parse(cleaned));
     } catch {
       // Treat invalid JSON as a normal image path.
     }
@@ -120,9 +112,7 @@ const extractImagePaths = (value: unknown): string[] => {
   return [cleaned];
 };
 
-const getAccommodationImages = (
-  item: AccommodationResponse
-): string[] => {
+const getAccommodationImages = (item: AccommodationResponse): string[] => {
   const possibleImageFields = [
     item.images,
     item.cover_image,
@@ -144,9 +134,7 @@ const getAccommodationImages = (
 const money = (value: string | number): string => {
   const amount = Number(value);
 
-  if (!Number.isFinite(amount)) {
-    return "Price on request";
-  }
+  if (!Number.isFinite(amount)) return "Price on request";
 
   return new Intl.NumberFormat("en-ZA", {
     style: "currency",
@@ -154,6 +142,27 @@ const money = (value: string | number): string => {
     maximumFractionDigits: 0,
   }).format(amount);
 };
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error("Unable to copy the link. Please copy it manually.");
+  }
+}
 
 export function DiscoverStays() {
   const navigate = useNavigate();
@@ -163,8 +172,9 @@ export function DiscoverStays() {
   const [error, setError] = useState("");
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [shareMessage, setShareMessage] = useState("");
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
-  // Load published accommodations.
   useEffect(() => {
     let active = true;
 
@@ -176,9 +186,7 @@ export function DiscoverStays() {
         const response = await fetch(
           `${API_BASE_URL}/accommodations?status=Published`,
           {
-            headers: {
-              Accept: "application/json",
-            },
+            headers: { Accept: "application/json" },
           }
         );
 
@@ -189,14 +197,9 @@ export function DiscoverStays() {
         }
 
         const data: unknown = await response.json();
-
         let records: unknown = data;
 
-        if (
-          !Array.isArray(records) &&
-          records &&
-          typeof records === "object"
-        ) {
+        if (!Array.isArray(records) && records && typeof records === "object") {
           const result = records as Record<string, unknown>;
           const nested = result.data;
 
@@ -206,10 +209,7 @@ export function DiscoverStays() {
             records = nested;
           } else if (nested && typeof nested === "object") {
             const nestedData = nested as Record<string, unknown>;
-
-            records =
-              nestedData.accommodations ??
-              nestedData.results;
+            records = nestedData.accommodations ?? nestedData.results;
           } else {
             records = result.results;
           }
@@ -221,32 +221,21 @@ export function DiscoverStays() {
           );
         }
 
-        const normalized: Stay[] = (
-          records as AccommodationResponse[]
-        )
+        const normalized: Stay[] = (records as AccommodationResponse[])
           .filter(
             (item) =>
               item &&
               item.id !== undefined &&
               item.id !== null &&
-              (
-                !item.status ||
-                item.status.toLowerCase() === "published"
-              )
+              (!item.status || item.status.toLowerCase() === "published")
           )
           .map((item) => ({
             id: String(item.id),
             accommodation:
-              item.name ??
-              item.accommodation ??
-              "Untitled property",
+              item.name ?? item.accommodation ?? "Untitled property",
             location:
-              item.address ??
-              item.location ??
-              "Location not provided",
-            starRating: Number(
-              item.star_rating ?? item.starRating ?? 0
-            ),
+              item.address ?? item.location ?? "Location not provided",
+            starRating: Number(item.star_rating ?? item.starRating ?? 0),
             nightlyRate:
               item.price_per_night ??
               item.pricePerNight ??
@@ -259,14 +248,10 @@ export function DiscoverStays() {
           }));
 
         const uniqueStays = Array.from(
-          new Map(
-            normalized.map((stay) => [stay.id, stay])
-          ).values()
+          new Map(normalized.map((stay) => [stay.id, stay])).values()
         );
 
-        if (active) {
-          setStays(uniqueStays);
-        }
+        if (active) setStays(uniqueStays);
       } catch (err) {
         if (active) {
           setError(
@@ -276,9 +261,7 @@ export function DiscoverStays() {
           );
         }
       } finally {
-        if (active) {
-          setLoading(false);
-        }
+        if (active) setLoading(false);
       }
     };
 
@@ -289,7 +272,6 @@ export function DiscoverStays() {
     };
   }, []);
 
-  // Load saved accommodation IDs for the signed-in user.
   useEffect(() => {
     let active = true;
 
@@ -297,59 +279,36 @@ export function DiscoverStays() {
       const token = getToken();
 
       if (!token) {
-        if (active) {
-          setFavoriteIds([]);
-        }
+        if (active) setFavoriteIds([]);
         return;
       }
 
       try {
-        const response = await fetch(
-          `${API_BASE_URL}/favorites`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: "application/json",
-            },
-          }
-        );
+        const response = await fetch(`${API_BASE_URL}/favorites`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          },
+        });
 
         if (response.status === 401) {
-          if (active) {
-            setFavoriteIds([]);
-          }
+          if (active) setFavoriteIds([]);
           return;
         }
 
         if (!response.ok) {
-          throw new Error(
-            "Unable to load saved accommodations."
-          );
+          throw new Error("Unable to load saved accommodations.");
         }
 
-        const data: FavoritesApiResponse =
-          await response.json();
+        const data: FavoritesApiResponse = await response.json();
 
-        const ids = (
-          Array.isArray(data.favorites)
-            ? data.favorites
-            : []
-        )
-          .map((item) =>
-            String(
-              item.accommodation_id ?? item.id ?? ""
-            )
-          )
+        const ids = (Array.isArray(data.favorites) ? data.favorites : [])
+          .map((item) => String(item.accommodation_id ?? item.id ?? ""))
           .filter((id) => id !== "");
 
-        if (active) {
-          setFavoriteIds(ids);
-        }
+        if (active) setFavoriteIds(ids);
       } catch (err) {
-        console.error(
-          "Unable to load favorites:",
-          err
-        );
+        console.error("Unable to load favorites:", err);
       }
     };
 
@@ -360,10 +319,7 @@ export function DiscoverStays() {
     };
   }, []);
 
-  // Save or remove a favorite through the existing backend routes.
-  const toggleFavorite = async (
-    accommodationId: string
-  ) => {
+  const toggleFavorite = async (accommodationId: string) => {
     const token = getToken();
 
     if (!token) {
@@ -371,21 +327,16 @@ export function DiscoverStays() {
       return;
     }
 
-    if (savingId !== null) {
-      return;
-    }
+    if (savingId !== null) return;
 
-    const alreadySaved =
-      favoriteIds.includes(accommodationId);
+    const alreadySaved = favoriteIds.includes(accommodationId);
 
     try {
       setSavingId(accommodationId);
       setError("");
 
       const response = await fetch(
-        `${API_BASE_URL}/favorites/${encodeURIComponent(
-          accommodationId
-        )}`,
+        `${API_BASE_URL}/favorites/${encodeURIComponent(accommodationId)}`,
         {
           method: alreadySaved ? "DELETE" : "POST",
           headers: {
@@ -404,17 +355,12 @@ export function DiscoverStays() {
       }
 
       if (!response.ok) {
-        throw new Error(
-          data.message ??
-            "Unable to update your favorites."
-        );
+        throw new Error(data.message ?? "Unable to update your favorites.");
       }
 
       setFavoriteIds((current) => {
         if (alreadySaved) {
-          return current.filter(
-            (id) => id !== accommodationId
-          );
+          return current.filter((id) => id !== accommodationId);
         }
 
         return current.includes(accommodationId)
@@ -423,9 +369,7 @@ export function DiscoverStays() {
       });
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to update your favorites."
+        err instanceof Error ? err.message : "Unable to update your favorites."
       );
     } finally {
       setSavingId(null);
@@ -433,11 +377,56 @@ export function DiscoverStays() {
   };
 
   const reserveRoom = (stayId: string) => {
-    navigate(
-      `/reservations?accommodationId=${encodeURIComponent(
-        stayId
-      )}`
-    );
+    navigate(`/reservations?accommodationId=${encodeURIComponent(stayId)}`);
+  };
+
+  const getShareDetails = (stay: Stay) => {
+    const url = `${window.location.origin}/accommodations/${encodeURIComponent(stay.id)}`;
+    const text = `Discover ${stay.accommodation} on La Villa Lekker Stays.\n\n${stay.location}\n\n${stay.description || "Explore this accommodation and make your reservation."}`;
+
+    return { url, text, fullText: `${text}\n\nView accommodation: ${url}` };
+  };
+
+  const shareStay = async (stay: Stay) => {
+    const details = getShareDetails(stay);
+
+    setShareMessage("");
+    setSharingId(stay.id);
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: stay.accommodation,
+          text: details.text,
+          url: details.url,
+        });
+        setShareMessage(`${stay.accommodation}: sharing menu opened.`);
+      } else {
+        await copyText(details.fullText);
+        setShareMessage(`${stay.accommodation}: details and link copied.`);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+
+      setShareMessage(
+        err instanceof Error ? err.message : "Unable to share this accommodation."
+      );
+    } finally {
+      setSharingId(null);
+    }
+  };
+
+  const copyStayLink = async (stay: Stay) => {
+    const { url } = getShareDetails(stay);
+
+    try {
+      await copyText(url);
+      setShareMessage(`${stay.accommodation}: link copied successfully.`);
+    } catch (err) {
+      setShareMessage(
+        err instanceof Error ? err.message : "Unable to copy the link."
+      );
+    }
   };
 
   const buttonStyle = (
@@ -495,8 +484,7 @@ export function DiscoverStays() {
               fontSize: 14,
             }}
           >
-            All available accommodations posted live from the
-            backoffice portal.
+            All available accommodations posted live from the backoffice portal.
           </p>
         </div>
 
@@ -513,11 +501,7 @@ export function DiscoverStays() {
           <button
             type="button"
             onClick={() => navigate("/favorites")}
-            style={buttonStyle(
-              "#1B4D3E",
-              "#fff",
-              "#1B4D3E"
-            )}
+            style={buttonStyle("#1B4D3E", "#fff", "#1B4D3E")}
           >
             ♥ My Favorites
           </button>
@@ -525,11 +509,7 @@ export function DiscoverStays() {
           <button
             type="button"
             onClick={() => navigate("/")}
-            style={buttonStyle(
-              "transparent",
-              "#475569",
-              "#cbd5e1"
-            )}
+            style={buttonStyle("transparent", "#475569", "#cbd5e1")}
           >
             ← Back to Home
           </button>
@@ -549,6 +529,22 @@ export function DiscoverStays() {
             }}
           >
             {error}
+          </p>
+        )}
+
+        {shareMessage && (
+          <p
+            role="status"
+            style={{
+              padding: "12px 16px",
+              marginBottom: 20,
+              color: "#166534",
+              background: "#f0fdf4",
+              border: "1px solid #bbf7d0",
+              borderRadius: 8,
+            }}
+          >
+            {shareMessage}
           </p>
         )}
 
@@ -576,19 +572,20 @@ export function DiscoverStays() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fill, minmax(280px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
               gap: 30,
             }}
           >
             {stays.map((stay) => {
-              const isFavorite =
-                favoriteIds.includes(stay.id);
-
+              const isFavorite = favoriteIds.includes(stay.id);
               const imageUrl =
                 stay.images.length > 0
                   ? getImageUrl(stay.images[0]).trim()
                   : "";
+              const shareDetails = getShareDetails(stay);
+              const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(
+                shareDetails.fullText
+              )}`;
 
               return (
                 <article
@@ -598,8 +595,7 @@ export function DiscoverStays() {
                     border: "1px solid #E2E8F0",
                     borderRadius: 10,
                     overflow: "hidden",
-                    boxShadow:
-                      "0 1px 4px rgba(0,0,0,0.05)",
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
                   }}
                 >
                   <div
@@ -647,8 +643,7 @@ export function DiscoverStays() {
                             `Image failed to load for ${stay.accommodation}:`,
                             imageUrl
                           );
-                          event.currentTarget.style.display =
-                            "none";
+                          event.currentTarget.style.display = "none";
                         }}
                       />
                     )}
@@ -656,19 +651,13 @@ export function DiscoverStays() {
                     <button
                       type="button"
                       aria-label={
-                        isFavorite
-                          ? "Remove from favorites"
-                          : "Save to favorites"
+                        isFavorite ? "Remove from favorites" : "Save to favorites"
                       }
                       title={
-                        isFavorite
-                          ? "Remove from favorites"
-                          : "Save to favorites"
+                        isFavorite ? "Remove from favorites" : "Save to favorites"
                       }
                       disabled={savingId === stay.id}
-                      onClick={() => {
-                        void toggleFavorite(stay.id);
-                      }}
+                      onClick={() => void toggleFavorite(stay.id)}
                       style={{
                         position: "absolute",
                         zIndex: 2,
@@ -679,26 +668,15 @@ export function DiscoverStays() {
                         borderRadius: "50%",
                         border: "1px solid #e2e8f0",
                         background: "#fff",
-                        color: isFavorite
-                          ? "#dc2626"
-                          : "#1B4D3E",
+                        color: isFavorite ? "#dc2626" : "#1B4D3E",
                         fontSize: 25,
                         lineHeight: 1,
-                        cursor:
-                          savingId === stay.id
-                            ? "wait"
-                            : "pointer",
-                        opacity:
-                          savingId === stay.id ? 0.65 : 1,
-                        boxShadow:
-                          "0 2px 8px rgba(0,0,0,0.12)",
+                        cursor: savingId === stay.id ? "wait" : "pointer",
+                        opacity: savingId === stay.id ? 0.65 : 1,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
                       }}
                     >
-                      {savingId === stay.id
-                        ? "…"
-                        : isFavorite
-                          ? "♥"
-                          : "♡"}
+                      {savingId === stay.id ? "…" : isFavorite ? "♥" : "♡"}
                     </button>
                   </div>
 
@@ -748,12 +726,7 @@ export function DiscoverStays() {
                         borderTop: "1px solid #F1F5F9",
                       }}
                     >
-                      <span
-                        style={{
-                          color: "#f59e0b",
-                          fontWeight: 600,
-                        }}
-                      >
+                      <span style={{ color: "#f59e0b", fontWeight: 600 }}>
                         ★ {stay.starRating || "Unrated"}
                       </span>
 
@@ -777,39 +750,68 @@ export function DiscoverStays() {
                         type="button"
                         onClick={() =>
                           navigate(
-                            `/accommodations/${encodeURIComponent(
-                              stay.id
-                            )}`
+                            `/accommodations/${encodeURIComponent(stay.id)}`
                           )
                         }
-                        style={buttonStyle(
-                    "#fff",
-                       "#1B4D3E",
-                     "#1B4D3E"
-                      )}
+                        style={buttonStyle("#fff", "#1B4D3E", "#1B4D3E")}
+                      >
+                        View details
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => reserveRoom(stay.id)}
+                        style={buttonStyle("#1B4D3E", "#fff", "#1B4D3E")}
+                      >
+                        Reserve a Room
+                      </button>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        marginTop: 10,
+                      }}
                     >
-                    View details
-                 </button>
-                               <button
-                  type="button"
-                  onClick={() => reserveRoom(stay.id)}
-                  style={buttonStyle(
-               "#1B4D3E",
-               "#fff",
-                "#1B4D3E"
-                   )}
-                   >
-              Reserve a Room
-              </button>
-          
-              </div>
-               </div>
-          </article>
-        );
-         })}
-       </div>
-      )}
-    </main>
+                      <button
+                        type="button"
+                        onClick={() => void shareStay(stay)}
+                        disabled={sharingId === stay.id}
+                        style={buttonStyle("#F8FAFC", "#1B4D3E", "#CBD5E1")}
+                      >
+                        {sharingId === stay.id ? "Sharing..." : "↗ Share"}
+                      </button>
+
+                      <a
+                        href={whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          ...buttonStyle("#F0FDF4", "#166534", "#BBF7D0"),
+                          textAlign: "center",
+                          textDecoration: "none",
+                          boxSizing: "border-box",
+                        }}
+                      >
+                        WhatsApp
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => void copyStayLink(stay)}
+                        style={buttonStyle("#fff", "#475569", "#CBD5E1")}
+                      >
+                        Copy link
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
