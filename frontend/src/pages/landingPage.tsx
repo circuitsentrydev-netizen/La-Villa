@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { getImageUrl } from '../utils/imageUrl';
 import { HeroVideo } from '../components/HeroVideo';
-import { SiteFooter } from '../components/SiteFooter';
 import NotificationBell from '../components/NotificationBell';
 import './LandingPage.css';
 
@@ -357,7 +356,9 @@ export function LandingPage() {
         <div className="hero-overlay" />
 
         <div className="hero-content">
-          <span className="hero-eyebrow">YOUR NEXT GETAWAY STARTS HERE</span>
+          <span className="hero-eyebrow">
+            YOUR NEXT GETAWAY STARTS HERE
+          </span>
 
           <h1>Your next chapter starts with a stay.</h1>
 
@@ -532,7 +533,9 @@ export function LandingPage() {
               <span className="empty-icon" aria-hidden="true">⌂</span>
 
               <h3>
-                {hasSearched ? 'No matching stays' : 'New stays are on the way'}
+                {hasSearched
+                  ? 'No matching stays'
+                  : 'New stays are on the way'}
               </h3>
 
               <p>
@@ -596,7 +599,9 @@ export function LandingPage() {
                         </div>
                       )}
 
-                      <span className="stay-category">La Villa selection</span>
+                      <span className="stay-category">
+                        La Villa selection
+                      </span>
                     </div>
 
                     <div className="stay-card-content">
@@ -626,7 +631,9 @@ export function LandingPage() {
 
                       <div className="stay-card-bottom">
                         <div className="price-block">
-                          <span className="price-label">Starting from</span>
+                          <span className="price-label">
+                            Starting from
+                          </span>
 
                           <p className="stay-price">
                             {stay.nightlyRate}
@@ -666,8 +673,6 @@ export function LandingPage() {
           Find your stay <span aria-hidden="true">→</span>
         </button>
       </section>
-
-      <SiteFooter isSignedIn={hasToken} />
     </div>
   );
 }
