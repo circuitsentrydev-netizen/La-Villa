@@ -1,6 +1,10 @@
 import { API_BASE_URL } from "../config/api";
 
-const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/i, "").replace(/\/+$/, "");
+// Remove the trailing /api from the backend API URL
+// so uploaded images can be loaded from the backend root.
+const API_ORIGIN = API_BASE_URL
+  .replace(/\/api\/?$/i, "")
+  .replace(/\/+$/, "");
 
 export function getImageUrl(imagePath?: string | null): string {
   if (typeof imagePath !== "string" || !imagePath.trim()) {
@@ -9,10 +13,11 @@ export function getImageUrl(imagePath?: string | null): string {
 
   const path = imagePath.trim();
 
-  // Reject the Unsplash homepage: it is not an image URL.
+  // Handle absolute image URLs.
   try {
     const parsed = new URL(path);
 
+    // Reject the Unsplash homepage because it is not an image.
     if (
       parsed.hostname === "unsplash.com" &&
       parsed.pathname === "/"
@@ -20,16 +25,26 @@ export function getImageUrl(imagePath?: string | null): string {
       return "";
     }
 
-    // Keep valid absolute image URLs unchanged.
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? parsed.href
-      : "";
+    // Accept HTTP and HTTPS image URLs.
+    if (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:"
+    ) {
+      return parsed.href;
+    }
+
+    return "";
   } catch {
-    // Relative backend upload paths are handled below.
+    // Continue with relative backend upload paths.
   }
 
-  // Convert /uploads/photo.jpg to the backend URL.
+  // Remove leading slashes from relative paths.
   const relativePath = path.replace(/^\/+/, "");
 
+  if (!relativePath) {
+    return "";
+  }
+
+  // Build the full backend image URL.
   return `${API_ORIGIN}/${relativePath}`;
 }
