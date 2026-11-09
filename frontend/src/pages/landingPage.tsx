@@ -1,10 +1,10 @@
-
 import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { getImageUrl } from '../utils/imageUrl';
 import { HeroVideo } from '../components/HeroVideo';
 import { SiteFooter } from '../components/SiteFooter';
+import NotificationBell from '../components/NotificationBell';
 import './LandingPage.css';
 
 interface StayCard {
@@ -312,6 +312,8 @@ export function LandingPage() {
         <div className="nav-actions">
           {hasToken ? (
             <>
+              <NotificationBell />
+
               <button
                 type="button"
                 className="nav-text-button"
@@ -319,6 +321,7 @@ export function LandingPage() {
               >
                 Saved stays
               </button>
+
               <button
                 type="button"
                 className="nav-primary-button"
@@ -336,6 +339,7 @@ export function LandingPage() {
               >
                 Sign in
               </button>
+
               <button
                 type="button"
                 className="nav-primary-button"
@@ -351,13 +355,17 @@ export function LandingPage() {
       <header className="hero-section">
         <HeroVideo />
         <div className="hero-overlay" />
+
         <div className="hero-content">
           <span className="hero-eyebrow">YOUR NEXT GETAWAY STARTS HERE</span>
+
           <h1>Your next chapter starts with a stay.</h1>
+
           <p>
             Discover hand-picked places to stay, from coastal escapes
             to memorable city breaks.
           </p>
+
           <button
             type="button"
             className="hero-button"
@@ -366,6 +374,7 @@ export function LandingPage() {
             Explore properties <span aria-hidden="true">→</span>
           </button>
         </div>
+
         <div className="hero-bottom-note">
           Thoughtful stays. Memorable moments.
         </div>
@@ -375,7 +384,9 @@ export function LandingPage() {
         <div className="section-container">
           <div className="section-intro">
             <span className="eyebrow">FIND YOUR PLACE</span>
+
             <h2>Where would you like to stay?</h2>
+
             <p>
               Refine your search to find a stay that suits your plans
               and budget.
@@ -385,6 +396,7 @@ export function LandingPage() {
           <form className="search-panel" onSubmit={submitSearch}>
             <label className="search-field">
               <span>Destination or property</span>
+
               <input
                 type="search"
                 value={searchFilters.query}
@@ -397,6 +409,7 @@ export function LandingPage() {
 
             <label className="search-field">
               <span>Minimum price</span>
+
               <input
                 type="number"
                 min="0"
@@ -411,6 +424,7 @@ export function LandingPage() {
 
             <label className="search-field">
               <span>Maximum price</span>
+
               <input
                 type="number"
                 min="0"
@@ -425,6 +439,7 @@ export function LandingPage() {
 
             <label className="search-field">
               <span>Minimum rating</span>
+
               <select
                 value={searchFilters.minRating}
                 onChange={(event) =>
@@ -444,6 +459,7 @@ export function LandingPage() {
               <button className="search-submit" type="submit">
                 Search stays
               </button>
+
               <button
                 className="search-clear"
                 type="button"
@@ -463,9 +479,11 @@ export function LandingPage() {
               <span className="eyebrow">
                 {hasSearched ? 'YOUR SEARCH' : 'A PLACE TO CALL YOUR OWN'}
               </span>
+
               <h2>
                 {hasSearched ? 'Search results' : 'Discover stays'}
               </h2>
+
               <p>
                 {hasSearched
                   ? 'Explore the properties that match your filters.'
@@ -500,6 +518,7 @@ export function LandingPage() {
             <div className="listing-message error-message" role="alert">
               <h3>We couldn't load the stays</h3>
               <p>{error}</p>
+
               <button
                 type="button"
                 className="nav-primary-button"
@@ -511,14 +530,17 @@ export function LandingPage() {
           ) : displayedStays.length === 0 ? (
             <div className="listing-message empty-message">
               <span className="empty-icon" aria-hidden="true">⌂</span>
+
               <h3>
                 {hasSearched ? 'No matching stays' : 'New stays are on the way'}
               </h3>
+
               <p>
                 {hasSearched
                   ? 'Try adjusting your filters or searching for another destination.'
                   : 'We are preparing the next collection of places for you to explore.'}
               </p>
+
               {hasSearched ? (
                 <button
                   type="button"
@@ -573,12 +595,14 @@ export function LandingPage() {
                           <span>Image coming soon</span>
                         </div>
                       )}
+
                       <span className="stay-category">La Villa selection</span>
                     </div>
 
                     <div className="stay-card-content">
                       <div className="stay-card-title-row">
                         <h3>{stay.accommodation}</h3>
+
                         <span className="stay-rating">
                           <span aria-hidden="true">★</span>{' '}
                           {stay.starRating > 0
@@ -603,6 +627,7 @@ export function LandingPage() {
                       <div className="stay-card-bottom">
                         <div className="price-block">
                           <span className="price-label">Starting from</span>
+
                           <p className="stay-price">
                             {stay.nightlyRate}
                             {stay.nightlyRateAmount !== null && (
@@ -610,6 +635,7 @@ export function LandingPage() {
                             )}
                           </p>
                         </div>
+
                         <span className="stay-arrow" aria-hidden="true">
                           ↗
                         </span>
@@ -626,9 +652,12 @@ export function LandingPage() {
       <section className="closing-cta">
         <div>
           <span className="eyebrow">MAKE TIME FOR YOURSELF</span>
+
           <h2>A change of scene can change everything.</h2>
+
           <p>Your next memorable stay is waiting to be discovered.</p>
         </div>
+
         <button
           type="button"
           className="cta-button"
