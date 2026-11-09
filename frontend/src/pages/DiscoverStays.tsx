@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config/api";
 import { getImageUrl } from "../utils/imageUrl";
+import NotificationBell from "../components/NotificationBell";
 
 interface Stay {
   id: string;
@@ -29,7 +30,6 @@ interface AccommodationResponse {
   nightlyRate?: number | string;
   status?: string;
   description?: string;
-
   images?: unknown;
   image?: unknown;
   image_url?: unknown;
@@ -54,16 +54,6 @@ const getToken = (): string | null =>
   localStorage.getItem("lavilla_token") ||
   localStorage.getItem("token");
 
-/**
- * Extracts usable image paths from different backend formats.
- *
- * Supported examples:
- * - "uploads/photo.jpg"
- * - ["/uploads/photo1.jpg", "/uploads/photo2.jpg"]
- * - [{"url": "/uploads/photo.jpg"}]
- * - {"image_url": "/uploads/photo.jpg"}
- * - JSON strings containing any of the above.
- */
 const extractImagePaths = (value: unknown): string[] => {
   if (value === null || value === undefined) {
     return [];
@@ -115,7 +105,6 @@ const extractImagePaths = (value: unknown): string[] => {
     return [];
   }
 
-  // Some database image fields contain JSON stored as text.
   if (
     (cleaned.startsWith("[") && cleaned.endsWith("]")) ||
     (cleaned.startsWith("{") && cleaned.endsWith("}"))
@@ -124,7 +113,7 @@ const extractImagePaths = (value: unknown): string[] => {
       const parsed: unknown = JSON.parse(cleaned);
       return extractImagePaths(parsed);
     } catch {
-      // If it is not valid JSON, treat it as a normal image path.
+      // Treat invalid JSON as a normal image path.
     }
   }
 
@@ -149,7 +138,6 @@ const getAccommodationImages = (
     extractImagePaths(field)
   );
 
-  // Remove duplicate paths within the same accommodation.
   return Array.from(new Set(paths));
 };
 
@@ -270,8 +258,6 @@ export function DiscoverStays() {
             images: getAccommodationImages(item),
           }));
 
-        // Prevent duplicate accommodation cards when the API
-        // returns the same accommodation record more than once.
         const uniqueStays = Array.from(
           new Map(
             normalized.map((stay) => [stay.id, stay])
@@ -310,7 +296,6 @@ export function DiscoverStays() {
     const loadFavoriteIds = async () => {
       const token = getToken();
 
-      // Visitors can browse without signing in.
       if (!token) {
         if (active) {
           setFavoriteIds([]);
@@ -520,8 +505,11 @@ export function DiscoverStays() {
             display: "flex",
             gap: 10,
             flexWrap: "wrap",
+            alignItems: "center",
           }}
         >
+          <NotificationBell />
+
           <button
             type="button"
             onClick={() => navigate("/favorites")}
@@ -622,8 +610,6 @@ export function DiscoverStays() {
                       position: "relative",
                     }}
                   >
-                    {/* This placeholder remains visible if an image
-                        is missing or the image server rejects it. */}
                     <div
                       style={{
                         position: "absolute",
@@ -797,33 +783,33 @@ export function DiscoverStays() {
                           )
                         }
                         style={buttonStyle(
-                          "#fff",
-                          "#1B4D3E",
-                          "#1B4D3E"
-                        )}
-                      >
-                        View details
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => reserveRoom(stay.id)}
-                        style={buttonStyle(
-                          "#1B4D3E",
-                          "#fff",
-                          "#1B4D3E"
-                        )}
-                      >
-                        Reserve a Room
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </main>
+                    "#fff",
+                       "#1B4D3E",
+                     "#1B4D3E"
+                      )}
+                    >
+                    View details
+                 </button>
+                               <button
+                  type="button"
+                  onClick={() => reserveRoom(stay.id)}
+                  style={buttonStyle(
+               "#1B4D3E",
+               "#fff",
+                "#1B4D3E"
+                   )}
+                   >
+              Reserve a Room
+              </button>
+          
+              </div>
+               </div>
+          </article>
+        );
+         })}
+       </div>
+      )}
+    </main>
     </div>
   );
 }
