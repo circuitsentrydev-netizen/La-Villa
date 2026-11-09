@@ -1,4 +1,3 @@
-
 import { pool } from "../config/database";
 
 export interface CreateNotificationInput {
@@ -11,10 +10,18 @@ export interface CreateNotificationInput {
 }
 
 export class NotificationService {
+  
+    // Create a notification for one user.
+
   async create(input: CreateNotificationInput) {
     const result = await pool.query(
       `INSERT INTO notifications (
-         user_id, type, title, message, link, metadata
+         user_id,
+         type,
+         title,
+         message,
+         link,
+         metadata
        )
        VALUES ($1, $2, $3, $4, $5, $6::jsonb)
        RETURNING *`,
@@ -31,33 +38,51 @@ export class NotificationService {
     return result.rows[0];
   }
 
-  async createForAdmins(input: Omit<CreateNotificationInput, "userId">) {
+  // Create a notification for every active administrator.
+  async createForAdmins(
+    input: Omit<CreateNotificationInput, "userId">
+  ) {
     const admins = await pool.query(
-      `SELECT id FROM users WHERE UPPER(role) = 'ADMIN'`
+      `SELECT id
+       FROM users
+       WHERE UPPER(role) = 'ADMIN'
+         AND is_active = TRUE`
     );
 
-    if (!admins.rowCount) return [];
+    if (!admins.rows.length) {
+      return [];
+    }
 
-    const created = [];
-
-    for (const admin of admins.rows) {
-      created.push(
-        await this.create({
+    const notifications = await Promise.all(
+      admins.rows.map((admin) =>
+        this.create({
           ...input,
           userId: admin.id,
         })
-      );
-    }
+      )
+    );
 
-    return created;
+    return notifications;
   }
 
+  // Retrieve notifications belonging to one user.
   async getForUser(userId: string, limit = 50) {
-    const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const safeLimit = Math.min(
+      Math.max(Number(limit) || 50, 1),
+      100
+    );
 
     const result = await pool.query(
-      `SELECT id, type, title, message, link, metadata,
-              is_read, read_at, created_at
+      `SELECT
+         id,
+         type,
+         title,
+         message,
+         link,
+         metadata,
+         is_read,
+         read_at,
+         created_at
        FROM notifications
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -68,22 +93,31 @@ export class NotificationService {
     return result.rows;
   }
 
+  // Count unread notifications for one user.
   async getUnreadCount(userId: string) {
     const result = await pool.query(
       `SELECT COUNT(*)::int AS count
        FROM notifications
-       WHERE user_id = $1 AND is_read = FALSE`,
+       WHERE user_id = $1
+         AND is_read = FALSE`,
       [userId]
     );
 
     return Number(result.rows[0]?.count ?? 0);
   }
 
-  async markAsRead(notificationId: string, userId: string) {
+  // Mark one user's notification as read.
+  async markAsRead(
+    notificationId: string,
+    userId: string
+  ) {
     const result = await pool.query(
       `UPDATE notifications
-       SET is_read = TRUE, read_at = NOW()
-       WHERE id = $1 AND user_id = $2
+       SET
+         is_read = TRUE,
+         read_at = NOW()
+       WHERE id = $1
+         AND user_id = $2
        RETURNING id, is_read, read_at`,
       [notificationId, userId]
     );
@@ -91,21 +125,30 @@ export class NotificationService {
     return result.rows[0] ?? null;
   }
 
+  // Mark all notifications belonging to one user as read.
   async markAllAsRead(userId: string) {
     const result = await pool.query(
       `UPDATE notifications
-       SET is_read = TRUE, read_at = NOW()
-       WHERE user_id = $1 AND is_read = FALSE`,
+       SET
+         is_read = TRUE,
+         read_at = NOW()
+       WHERE user_id = $1
+         AND is_read = FALSE`,
       [userId]
     );
 
     return result.rowCount ?? 0;
   }
 
-  async deleteNotification(notificationId: string, userId: string) {
+  // Delete one notification belonging to one user.
+  async deleteNotification(
+    notificationId: string,
+    userId: string
+  ) {
     const result = await pool.query(
       `DELETE FROM notifications
-       WHERE id = $1 AND user_id = $2
+       WHERE id = $1
+         AND user_id = $2
        RETURNING id`,
       [notificationId, userId]
     );
