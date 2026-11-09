@@ -1,5 +1,5 @@
-
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL } from "../config/api";
 import { getImageUrl } from "../utils/imageUrl";
@@ -12,7 +12,7 @@ interface Stay {
   nightlyRate: string | number;
   status: string;
   description?: string;
-  images?: string[] | string;
+  images: string[];
 }
 
 interface AccommodationResponse {
@@ -29,7 +29,15 @@ interface AccommodationResponse {
   nightlyRate?: number | string;
   status?: string;
   description?: string;
-  images?: string[] | string;
+
+  images?: unknown;
+  image?: unknown;
+  image_url?: unknown;
+  imageUrl?: unknown;
+  image_urls?: unknown;
+  photos?: unknown;
+  cover_image?: unknown;
+  thumbnail?: unknown;
 }
 
 interface FavoriteResponseItem {
@@ -42,6 +50,123 @@ interface FavoritesApiResponse {
   message?: string;
 }
 
+const getToken = (): string | null =>
+  localStorage.getItem("lavilla_token") ||
+  localStorage.getItem("token");
+
+/**
+ * Extracts usable image paths from different backend formats.
+ *
+ * Supported examples:
+ * - "uploads/photo.jpg"
+ * - ["/uploads/photo1.jpg", "/uploads/photo2.jpg"]
+ * - [{"url": "/uploads/photo.jpg"}]
+ * - {"image_url": "/uploads/photo.jpg"}
+ * - JSON strings containing any of the above.
+ */
+const extractImagePaths = (value: unknown): string[] => {
+  if (value === null || value === undefined) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => extractImagePaths(item));
+  }
+
+  if (typeof value === "object") {
+    const imageObject = value as Record<string, unknown>;
+
+    const possibleKeys = [
+      "url",
+      "path",
+      "src",
+      "image_url",
+      "imageUrl",
+      "image",
+      "filename",
+      "file",
+    ];
+
+    for (const key of possibleKeys) {
+      if (imageObject[key]) {
+        const result = extractImagePaths(imageObject[key]);
+
+        if (result.length > 0) {
+          return result;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  if (typeof value !== "string") {
+    return [];
+  }
+
+  const cleaned = value.trim();
+
+  if (
+    !cleaned ||
+    cleaned === "null" ||
+    cleaned === "undefined" ||
+    cleaned === "[object Object]"
+  ) {
+    return [];
+  }
+
+  // Some database image fields contain JSON stored as text.
+  if (
+    (cleaned.startsWith("[") && cleaned.endsWith("]")) ||
+    (cleaned.startsWith("{") && cleaned.endsWith("}"))
+  ) {
+    try {
+      const parsed: unknown = JSON.parse(cleaned);
+      return extractImagePaths(parsed);
+    } catch {
+      // If it is not valid JSON, treat it as a normal image path.
+    }
+  }
+
+  return [cleaned];
+};
+
+const getAccommodationImages = (
+  item: AccommodationResponse
+): string[] => {
+  const possibleImageFields = [
+    item.images,
+    item.cover_image,
+    item.image_url,
+    item.imageUrl,
+    item.image_urls,
+    item.photos,
+    item.image,
+    item.thumbnail,
+  ];
+
+  const paths = possibleImageFields.flatMap((field) =>
+    extractImagePaths(field)
+  );
+
+  // Remove duplicate paths within the same accommodation.
+  return Array.from(new Set(paths));
+};
+
+const money = (value: string | number): string => {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "Price on request";
+  }
+
+  return new Intl.NumberFormat("en-ZA", {
+    style: "currency",
+    currency: "ZAR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
 export function DiscoverStays() {
   const navigate = useNavigate();
 
@@ -50,10 +175,6 @@ export function DiscoverStays() {
   const [error, setError] = useState("");
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [savingId, setSavingId] = useState<string | null>(null);
-
-  const getToken = (): string | null =>
-    localStorage.getItem("lavilla_token") ||
-    localStorage.getItem("token");
 
   // Load published accommodations.
   useEffect(() => {
@@ -65,7 +186,12 @@ export function DiscoverStays() {
         setError("");
 
         const response = await fetch(
-          `${API_BASE_URL}/accommodations?status=Published`
+          `${API_BASE_URL}/accommodations?status=Published`,
+          {
+            headers: {
+              Accept: "application/json",
+            },
+          }
         );
 
         if (!response.ok) {
@@ -75,6 +201,7 @@ export function DiscoverStays() {
         }
 
         const data: unknown = await response.json();
+
         let records: unknown = data;
 
         if (
@@ -93,7 +220,8 @@ export function DiscoverStays() {
             const nestedData = nested as Record<string, unknown>;
 
             records =
-              nestedData.accommodations ?? nestedData.results;
+              nestedData.accommodations ??
+              nestedData.results;
           } else {
             records = result.results;
           }
@@ -110,8 +238,13 @@ export function DiscoverStays() {
         )
           .filter(
             (item) =>
-              !item.status ||
-              item.status.toLowerCase() === "published"
+              item &&
+              item.id !== undefined &&
+              item.id !== null &&
+              (
+                !item.status ||
+                item.status.toLowerCase() === "published"
+              )
           )
           .map((item) => ({
             id: String(item.id),
@@ -134,11 +267,19 @@ export function DiscoverStays() {
               "",
             status: item.status ?? "Published",
             description: item.description ?? "",
-            images: item.images,
+            images: getAccommodationImages(item),
           }));
 
+        // Prevent duplicate accommodation cards when the API
+        // returns the same accommodation record more than once.
+        const uniqueStays = Array.from(
+          new Map(
+            normalized.map((stay) => [stay.id, stay])
+          ).values()
+        );
+
         if (active) {
-          setStays(normalized);
+          setStays(uniqueStays);
         }
       } catch (err) {
         if (active) {
@@ -162,15 +303,14 @@ export function DiscoverStays() {
     };
   }, []);
 
-  // To Load saved accommodation IDs for the signed in user.
+  // Load saved accommodation IDs for the signed-in user.
   useEffect(() => {
     let active = true;
 
     const loadFavoriteIds = async () => {
       const token = getToken();
 
-      // Browsing remains available without signing in.
-      
+      // Visitors can browse without signing in.
       if (!token) {
         if (active) {
           setFavoriteIds([]);
@@ -197,16 +337,23 @@ export function DiscoverStays() {
         }
 
         if (!response.ok) {
-          throw new Error("Unable to load saved accommodations.");
+          throw new Error(
+            "Unable to load saved accommodations."
+          );
         }
 
-        const data: FavoritesApiResponse = await response.json();
+        const data: FavoritesApiResponse =
+          await response.json();
 
         const ids = (
-          Array.isArray(data.favorites) ? data.favorites : []
+          Array.isArray(data.favorites)
+            ? data.favorites
+            : []
         )
           .map((item) =>
-            String(item.accommodation_id ?? item.id ?? "")
+            String(
+              item.accommodation_id ?? item.id ?? ""
+            )
           )
           .filter((id) => id !== "");
 
@@ -214,9 +361,10 @@ export function DiscoverStays() {
           setFavoriteIds(ids);
         }
       } catch (err) {
-        // A favorites-loading problem should not stop visitors
-        // from browsing available accommodations.
-        console.error("Unable to load favorites:", err);
+        console.error(
+          "Unable to load favorites:",
+          err
+        );
       }
     };
 
@@ -227,42 +375,10 @@ export function DiscoverStays() {
     };
   }, []);
 
-  const getImages = (
-    images?: string[] | string
-  ): string[] => {
-    if (Array.isArray(images)) {
-      return images.filter(
-        (image) =>
-          typeof image === "string" &&
-          image.trim() !== ""
-      );
-    }
-
-    if (typeof images === "string" && images.trim()) {
-      try {
-        const parsed: unknown = JSON.parse(images);
-
-        if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (image): image is string =>
-              typeof image === "string" &&
-              image.trim() !== ""
-          );
-        }
-
-        if (typeof parsed === "string" && parsed.trim()) {
-          return [parsed];
-        }
-      } catch {
-        return [images];
-      }
-    }
-
-    return [];
-  };
-
   // Save or remove a favorite through the existing backend routes.
-  const toggleFavorite = async (accommodationId: string) => {
+  const toggleFavorite = async (
+    accommodationId: string
+  ) => {
     const token = getToken();
 
     if (!token) {
@@ -274,7 +390,8 @@ export function DiscoverStays() {
       return;
     }
 
-    const alreadySaved = favoriteIds.includes(accommodationId);
+    const alreadySaved =
+      favoriteIds.includes(accommodationId);
 
     try {
       setSavingId(accommodationId);
@@ -293,9 +410,8 @@ export function DiscoverStays() {
         }
       );
 
-      const data: { message?: string } = await response
-        .json()
-        .catch(() => ({}));
+      const data: { message?: string } =
+        await response.json().catch(() => ({}));
 
       if (response.status === 401) {
         navigate("/login");
@@ -304,7 +420,8 @@ export function DiscoverStays() {
 
       if (!response.ok) {
         throw new Error(
-          data.message ?? "Unable to update your favorites."
+          data.message ??
+            "Unable to update your favorites."
         );
       }
 
@@ -331,17 +448,18 @@ export function DiscoverStays() {
   };
 
   const reserveRoom = (stayId: string) => {
-    const destination =
-      `/reservations?accommodationId=${encodeURIComponent(stayId)}`;
-
-    navigate(destination);
+    navigate(
+      `/reservations?accommodationId=${encodeURIComponent(
+        stayId
+      )}`
+    );
   };
 
   const buttonStyle = (
     background: string,
     color: string,
     border: string
-  ): React.CSSProperties => ({
+  ): CSSProperties => ({
     flex: 1,
     padding: "12px 14px",
     borderRadius: 7,
@@ -407,7 +525,11 @@ export function DiscoverStays() {
           <button
             type="button"
             onClick={() => navigate("/favorites")}
-            style={buttonStyle("#1B4D3E", "#fff", "#1B4D3E")}
+            style={buttonStyle(
+              "#1B4D3E",
+              "#fff",
+              "#1B4D3E"
+            )}
           >
             ♥ My Favorites
           </button>
@@ -415,7 +537,11 @@ export function DiscoverStays() {
           <button
             type="button"
             onClick={() => navigate("/")}
-            style={buttonStyle("transparent", "#475569", "#cbd5e1")}
+            style={buttonStyle(
+              "transparent",
+              "#475569",
+              "#cbd5e1"
+            )}
           >
             ← Back to Home
           </button>
@@ -439,7 +565,13 @@ export function DiscoverStays() {
         )}
 
         {loading ? (
-          <p style={{ textAlign: "center", padding: 40 }}>
+          <p
+            style={{
+              textAlign: "center",
+              padding: 40,
+              color: "#64748b",
+            }}
+          >
             Loading available properties...
           </p>
         ) : stays.length === 0 ? (
@@ -462,11 +594,12 @@ export function DiscoverStays() {
             }}
           >
             {stays.map((stay) => {
-              const images = getImages(stay.images);
-              const isFavorite = favoriteIds.includes(stay.id);
+              const isFavorite =
+                favoriteIds.includes(stay.id);
+
               const imageUrl =
-                images.length > 0
-                  ? getImageUrl(images[0]).trim()
+                stay.images.length > 0
+                  ? getImageUrl(stay.images[0]).trim()
                   : "";
 
               return (
@@ -477,44 +610,61 @@ export function DiscoverStays() {
                     border: "1px solid #E2E8F0",
                     borderRadius: 10,
                     overflow: "hidden",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+                    boxShadow:
+                      "0 1px 4px rgba(0,0,0,0.05)",
                   }}
                 >
                   <div
                     style={{
                       height: 210,
-                      background: "#e2e8f0",
+                      background: "#E8EFEB",
                       overflow: "hidden",
                       position: "relative",
                     }}
                   >
-                    {imageUrl ? (
+                    {/* This placeholder remains visible if an image
+                        is missing or the image server rejects it. */}
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        gap: 8,
+                        color: "#64748b",
+                        fontSize: 13,
+                      }}
+                    >
+                      <span style={{ fontSize: 30 }}>⌂</span>
+                      <span>Property image unavailable</span>
+                    </div>
+
+                    {imageUrl && (
                       <img
                         src={imageUrl}
-                        alt={stay.accommodation}
+                        alt={`${stay.accommodation} accommodation`}
                         loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
                         style={{
+                          position: "relative",
+                          zIndex: 1,
                           width: "100%",
                           height: "100%",
                           objectFit: "cover",
                           display: "block",
                         }}
                         onError={(event) => {
-                          event.currentTarget.style.display = "none";
+                          console.error(
+                            `Image failed to load for ${stay.accommodation}:`,
+                            imageUrl
+                          );
+                          event.currentTarget.style.display =
+                            "none";
                         }}
                       />
-                    ) : (
-                      <div
-                        style={{
-                          height: "100%",
-                          display: "flex",
-                          justifyContent: "center",
-                          alignItems: "center",
-                          color: "#64748b",
-                        }}
-                      >
-                        No image available
-                      </div>
                     )}
 
                     <button
@@ -535,6 +685,7 @@ export function DiscoverStays() {
                       }}
                       style={{
                         position: "absolute",
+                        zIndex: 2,
                         top: 12,
                         right: 12,
                         width: 44,
@@ -542,13 +693,19 @@ export function DiscoverStays() {
                         borderRadius: "50%",
                         border: "1px solid #e2e8f0",
                         background: "#fff",
-                        color: isFavorite ? "#dc2626" : "#1B4D3E",
+                        color: isFavorite
+                          ? "#dc2626"
+                          : "#1B4D3E",
                         fontSize: 25,
                         lineHeight: 1,
                         cursor:
-                          savingId === stay.id ? "wait" : "pointer",
-                        opacity: savingId === stay.id ? 0.65 : 1,
-                        boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+                          savingId === stay.id
+                            ? "wait"
+                            : "pointer",
+                        opacity:
+                          savingId === stay.id ? 0.65 : 1,
+                        boxShadow:
+                          "0 2px 8px rgba(0,0,0,0.12)",
                       }}
                     >
                       {savingId === stay.id
@@ -577,7 +734,7 @@ export function DiscoverStays() {
                         fontSize: 14,
                       }}
                     >
-                      {stay.location}
+                      ♧ {stay.location}
                     </p>
 
                     {stay.description && (
@@ -618,7 +775,7 @@ export function DiscoverStays() {
                         {stay.nightlyRate !== "" &&
                         stay.nightlyRate !== null &&
                         stay.nightlyRate !== undefined
-                          ? `R ${stay.nightlyRate} / night`
+                          ? `${money(stay.nightlyRate)} / night`
                           : "Price on request"}
                       </strong>
                     </div>
@@ -639,7 +796,11 @@ export function DiscoverStays() {
                             )}`
                           )
                         }
-                        style={buttonStyle("#fff", "#1B4D3E", "#1B4D3E")}
+                        style={buttonStyle(
+                          "#fff",
+                          "#1B4D3E",
+                          "#1B4D3E"
+                        )}
                       >
                         View details
                       </button>
