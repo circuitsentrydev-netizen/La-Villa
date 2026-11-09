@@ -30,9 +30,6 @@ const selectProfile = async (id: string) => {
   return result.rows[0] ?? null;
 };
 
-/**
- * GET /api/profile/me
- */
 export const getMyProfile = async (
   req: Request,
   res: Response
@@ -59,18 +56,13 @@ export const getMyProfile = async (
     res.status(200).json({ user });
   } catch (error) {
     console.error("Error fetching profile:", error);
+
     res.status(500).json({
       message: "Failed to fetch your profile.",
     });
   }
 };
 
-/**
- * PUT /api/profile/me
- *
- * Users can update their name and profile picture.
- * Email and role cannot be changed through this endpoint.
- */
 export const updateMyProfile = async (
   req: Request,
   res: Response
@@ -138,17 +130,13 @@ export const updateMyProfile = async (
     });
   } catch (error) {
     console.error("Error updating profile:", error);
+
     res.status(500).json({
       message: "Failed to update your profile.",
     });
   }
 };
 
-/**
- * GET /api/profile/:id
- *
- * A user can only retrieve their own profile.
- */
 export const getUserProfile = async (
   req: Request,
   res: Response
@@ -182,17 +170,13 @@ export const getUserProfile = async (
     res.status(200).json({ user });
   } catch (error) {
     console.error("Error fetching user profile:", error);
+
     res.status(500).json({
       message: "Failed to fetch user profile.",
     });
   }
 };
 
-/**
- * PUT /api/profile/:id
- *
- * A user can only update their own profile.
- */
 export const updateUserProfile = async (
   req: Request,
   res: Response
@@ -217,9 +201,8 @@ export const updateUserProfile = async (
 };
 
 /**
- * Account deletion is intentionally not available through
- * ordinary profile endpoints. Administrative account management
- * will use separate protected routes.
+ * Ordinary profile deletion is intentionally disabled.
+ * Administrator account management uses soft deactivation.
  */
 export const deleteUserProfile = async (
   _req: Request,

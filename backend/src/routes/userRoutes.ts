@@ -1,11 +1,6 @@
 
 import { Router } from "express";
-import {
-  getMyProfile,
-  updateMyProfile,
-  getUserProfile,
-  updateUserProfile,
-} from "../controllers/userController";
+import { getMyProfile,updateMyProfile,getUserProfile,  updateUserProfile,} from "../controllers/userController";
 import { adminUserController } from "../controllers/adminUserController";
 import { authMiddleware } from "../middleware/authMiddleware";
 
