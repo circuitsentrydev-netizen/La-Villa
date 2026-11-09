@@ -7,6 +7,7 @@ import RegisterPage from './pages/RegisterPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 import { AddAccommodationForm } from './pages/AddAccommodationForm';
+import EditAccommodationForm from './pages/EditAccommodationForm';
 import { DiscoverStays } from './pages/DiscoverStays';
 import AccommodationDetails from './pages/AccommodationDetails';
 import ReservationsPage from './pages/ReservationsPage';
@@ -44,7 +45,7 @@ function App() {
         element={<RegisterPage />}
       />
 
-      {/* Public legal pages for customers and Google review */}
+      {/* Public legal pages */}
       <Route
         path="/privacy-policy"
         element={<PrivacyPolicyPage />}
@@ -98,14 +99,16 @@ function App() {
         element={<ManageRoomTypes />}
       />
 
+      {/* Add accommodation */}
       <Route
         path="/admin/accommodations/new"
         element={<AddAccommodationForm />}
       />
 
+      {/* Edit existing accommodation */}
       <Route
         path="/admin/accommodations/:accommodationId/edit"
-        element={<AddAccommodationForm />}
+        element={<EditAccommodationForm />}
       />
 
       {/* Fallback */}
